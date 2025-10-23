@@ -766,7 +766,7 @@ class SessionManager:
         """
         try:
             metadata_message = TCPMessage(
-                msg_type='file_available',
+                msg_type=MessageType.FILE_AVAILABLE.value,
                 sender_id="server",
                 data=file_metadata.to_dict()
             )

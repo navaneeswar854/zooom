@@ -710,14 +710,14 @@ class NetworkHandler:
         
         if message.msg_type == MessageType.CHAT.value:
             logger.info(f"Chat message broadcast completed: {successful_deliveries}/{total_targets} successful deliveries")
-        elif message.msg_type == 'file_available':
+        elif message.msg_type == MessageType.FILE_AVAILABLE.value:
             logger.info(f"File availability broadcast completed: {successful_deliveries}/{total_targets} successful deliveries")
         
         if failed_deliveries:
             if message.msg_type == MessageType.CHAT.value:
                 logger.warning(f"Failed to deliver chat message to clients: {failed_deliveries}")
                 self._handle_chat_delivery_failures(failed_deliveries, message)
-            elif message.msg_type == 'file_available':
+            elif message.msg_type == MessageType.FILE_AVAILABLE.value:
                 logger.warning(f"Failed to deliver file availability to clients: {failed_deliveries}")
                 self._handle_file_delivery_failures(failed_deliveries, message)
     

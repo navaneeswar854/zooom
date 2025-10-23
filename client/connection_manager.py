@@ -891,7 +891,7 @@ class ConnectionManager:
                 # Heartbeat acknowledged
                 pass
             
-            elif message.msg_type == 'file_available':
+            elif message.msg_type == MessageType.FILE_AVAILABLE.value:
                 # Handle file availability notification
                 self._handle_file_available(message)
             
@@ -1090,8 +1090,8 @@ class ConnectionManager:
                 logger.info(f"File available: {filename} ({filesize} bytes) from {uploader_username}")
                 
                 # Notify callback if registered
-                if 'file_available' in self.message_callbacks:
-                    self.message_callbacks['file_available'](message)
+                if MessageType.FILE_AVAILABLE.value in self.message_callbacks:
+                    self.message_callbacks[MessageType.FILE_AVAILABLE.value](message)
         
         except Exception as e:
             logger.error(f"Error handling file available message: {e}")

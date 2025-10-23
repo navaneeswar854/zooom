@@ -132,7 +132,7 @@ class CollaborationClient:
                 MessageType.SCREEN_SHARE.value, self._on_screen_share_message
             )
             self.connection_manager.register_message_callback(
-                'file_available', self._on_file_available
+                MessageType.FILE_AVAILABLE.value, self._on_file_available
             )
             self.connection_manager.register_message_callback(
                 'file_download_progress', self._on_file_download_progress
