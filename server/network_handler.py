@@ -900,7 +900,7 @@ class NetworkHandler:
                     
                     # Send file chunk to requesting client
                     chunk_message = TCPMessage(
-                        msg_type='file_download_chunk',
+                        msg_type=MessageType.FILE_DOWNLOAD_CHUNK.value,
                         sender_id='server',
                         data={
                             'file_id': file_id,

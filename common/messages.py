@@ -19,6 +19,7 @@ class MessageType(Enum):
     FILE_REQUEST = "file_request"
     FILE_METADATA = "file_metadata"
     FILE_AVAILABLE = "file_available"
+    FILE_DOWNLOAD_CHUNK = "file_download_chunk"
     SCREEN_SHARE = "screen_share"
     SCREEN_SHARE_START = "screen_share_start"
     SCREEN_SHARE_STOP = "screen_share_stop"

@@ -895,7 +895,7 @@ class ConnectionManager:
                 # Handle file availability notification
                 self._handle_file_available(message)
             
-            elif message.msg_type == 'file_download_chunk':
+            elif message.msg_type == MessageType.FILE_DOWNLOAD_CHUNK.value:
                 # Handle file download chunk
                 self._handle_file_download_chunk(message)
             
