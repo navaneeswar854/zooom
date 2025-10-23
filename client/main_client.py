@@ -375,7 +375,6 @@ class CollaborationClient:
                     self.screen_manager.stop_screen_sharing()
                 else:
                     logger.error("Screen manager not available")
-                        logger.error("Failed to send screen sharing stop request")
             
             self.screen_sharing = enabled
         
