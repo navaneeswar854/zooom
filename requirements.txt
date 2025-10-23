@@ -1,0 +1,29 @@
+# Core dependencies for LAN Collaboration Suite
+# GUI Framework (built-in with Python)
+# tkinter - included with Python
+
+# Audio processing
+pyaudio>=0.2.11
+
+# Video processing
+opencv-python>=4.8.0
+
+# Screen capture and automation
+pyautogui>=0.9.54
+
+# Windows-specific dependencies
+pygetwindow>=0.0.9; sys_platform == "win32"
+
+# Optional: Enhanced audio processing
+# numpy>=1.21.0  # Usually comes with opencv-python
+
+# Development and testing dependencies (optional)
+# pytest>=7.0.0
+# pytest-cov>=4.0.0
+# flake8>=5.0.0
+
+# Note: All other dependencies are part of Python standard library:
+# - socket, threading, json, time, os, sys, logging
+# - tkinter (GUI framework)
+# - pathlib, datetime, collections
+# - concurrent.futures, subprocess
