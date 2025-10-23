@@ -348,6 +348,7 @@ class ConnectionManager:
         
         try:
             presenter_request = MessageFactory.create_presenter_request_message(self.client_id)
+            logger.info(f"Created presenter request message: {presenter_request.msg_type}")
             success = self._send_tcp_message(presenter_request)
             
             if success:

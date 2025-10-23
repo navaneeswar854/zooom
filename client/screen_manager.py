@@ -88,6 +88,8 @@ class ScreenManager:
         
         if success:
             logger.info("Presenter role request sent")
+            # Set a timeout to reset pending flag if no response
+            threading.Timer(10.0, self._reset_presenter_request_timeout).start()
         else:
             logger.error("Failed to send presenter role request")
             with self._lock:
@@ -205,6 +207,13 @@ class ScreenManager:
             self.gui_manager.handle_presenter_denied(reason)
         
         logger.info(f"Presenter role denied: {reason}")
+    
+    def _reset_presenter_request_timeout(self):
+        """Reset presenter request pending flag after timeout."""
+        with self._lock:
+            if self.presenter_request_pending:
+                logger.warning("Presenter request timed out - resetting pending flag")
+                self.presenter_request_pending = False
     
     def handle_screen_share_message(self, message: TCPMessage):
         """Handle incoming screen share message."""

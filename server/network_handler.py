@@ -11,7 +11,7 @@ import time
 from typing import Optional, Callable, Tuple, Dict, List
 from concurrent.futures import ThreadPoolExecutor
 from common.networking import TCPServer, UDPServer
-from common.messages import TCPMessage, UDPPacket, MessageType, deserialize_tcp_message, deserialize_udp_packet
+from common.messages import TCPMessage, UDPPacket, MessageType, MessageFactory, deserialize_tcp_message, deserialize_udp_packet
 from common.file_metadata import FileMetadata
 from server.session_manager import SessionManager
 from server.media_relay import MediaRelay
@@ -335,7 +335,9 @@ class NetworkHandler:
                 
                 try:
                     message = deserialize_tcp_message(data)
-                    logger.info(f"Received message from {client_id}: {message.msg_type}")
+                    # Log non-heartbeat messages for debugging
+                    if message.msg_type != MessageType.HEARTBEAT.value:
+                        logger.info(f"Received message from {client_id}: {message.msg_type}")
                     self._process_tcp_message(message, client_id, client_socket)
                     
                 except Exception as e:
@@ -391,6 +393,7 @@ class NetworkHandler:
             
             elif message.msg_type == MessageType.PRESENTER_REQUEST.value:
                 # Handle presenter role request
+                logger.info(f"Processing presenter role request from client {sender_id}")
                 success, msg = self.session_manager.request_presenter_role(sender_id)
                 
                 if success:
@@ -578,10 +581,12 @@ class NetworkHandler:
                     )
             
             else:
-                logger.warning(f"Unknown message type: {message.msg_type}")
+                logger.warning(f"Unknown message type from client {sender_id}: {message.msg_type} (data: {message.data})")
         
         except Exception as e:
             logger.error(f"Error processing TCP message: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _handle_udp_packet(self, data: bytes, client_address: Tuple[str, int]):
         """
