@@ -335,7 +335,7 @@ class NetworkHandler:
                 
                 try:
                     message = deserialize_tcp_message(data)
-                    logger.debug(f"Received message from {client_id}: {message.msg_type}")
+                    logger.info(f"Received message from {client_id}: {message.msg_type}")
                     self._process_tcp_message(message, client_id, client_socket)
                     
                 except Exception as e:
@@ -426,6 +426,10 @@ class NetworkHandler:
                     self._broadcast_tcp_message(message, exclude_client=sender_id)
                 else:
                     logger.warning(f"Client {sender_id} failed to stop screen sharing: {msg}")
+            
+            elif message.msg_type == 'test_message':
+                # Handle test message
+                logger.info(f"Received test message from {sender_id}: {message.data}")
             
             elif message.msg_type == MessageType.SCREEN_SHARE.value:
                 # Handle screen frame data - only relay if sender is the active sharer

@@ -374,10 +374,11 @@ class ConnectionManager:
         
         try:
             start_message = MessageFactory.create_screen_share_start_message(self.client_id)
+            logger.info(f"Creating screen share start message: {start_message.msg_type}")
             success = self._send_tcp_message(start_message)
             
             if success:
-                logger.info("Sent screen sharing start message")
+                logger.info("Successfully sent screen sharing start message to server")
             else:
                 logger.error("Failed to send screen sharing start message")
             

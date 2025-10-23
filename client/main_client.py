@@ -345,9 +345,19 @@ class CollaborationClient:
             if self.connection_manager:
                 if enabled:
                     # Try to start screen sharing on server
+                    logger.info("Attempting to start screen sharing...")
+                    
+                    # Send a test message first to see if communication works
+                    test_message = TCPMessage(
+                        msg_type='test_message',
+                        sender_id=self.connection_manager.get_client_id(),
+                        data={'test': 'screen_share_request'}
+                    )
+                    self.connection_manager._send_tcp_message(test_message)
+                    
                     success = self.connection_manager.start_screen_sharing()
                     if success:
-                        logger.info("Screen sharing start request sent to server")
+                        logger.info("Screen sharing start request sent to server - waiting for confirmation")
                         # Don't start capture yet - wait for server confirmation
                         # The actual capture will start when we receive confirmation
                     else:
