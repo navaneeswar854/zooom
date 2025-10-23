@@ -14,6 +14,7 @@ from client.gui_manager import GUIManager
 from client.audio_manager import AudioManager
 from client.video_capture import VideoCapture
 from client.video_playback import VideoManager
+from client.screen_manager import ScreenManager
 from common.messages import TCPMessage, UDPPacket, MessageType
 from common.platform_utils import PLATFORM_INFO, log_platform_info, DeviceUtils, ErrorHandler
 
@@ -46,6 +47,7 @@ class CollaborationClient:
         self.audio_manager: Optional[AudioManager] = None
         self.video_capture: Optional[VideoCapture] = None
         self.video_manager: Optional[VideoManager] = None
+        self.screen_manager: Optional[ScreenManager] = None
         
         # Application state
         self.running = False
@@ -114,6 +116,13 @@ class CollaborationClient:
             server_host = self.gui_manager.server_entry.get().strip() or "localhost"
             self.connection_manager = ConnectionManager(server_host=server_host)
             
+            # Create screen manager
+            self.screen_manager = ScreenManager(
+                client_id=self.connection_manager.get_client_id(),
+                connection_manager=self.connection_manager,
+                gui_manager=self.gui_manager
+            )
+            
             # Setup connection callbacks
             self.connection_manager.register_status_callback(self._on_connection_status_changed)
             self.connection_manager.register_message_callback(
@@ -142,6 +151,12 @@ class CollaborationClient:
             )
             self.connection_manager.register_message_callback(
                 'screen_share_confirmed', self._on_screen_share_confirmed
+            )
+            self.connection_manager.register_message_callback(
+                MessageType.PRESENTER_GRANTED.value, self._on_presenter_granted
+            )
+            self.connection_manager.register_message_callback(
+                MessageType.PRESENTER_DENIED.value, self._on_presenter_denied
             )
             self.connection_manager.register_message_callback(
                 MessageType.FILE_AVAILABLE.value, self._on_file_available
@@ -342,38 +357,24 @@ class CollaborationClient:
     def _handle_screen_share_toggle(self, enabled: bool):
         """Handle screen sharing toggle from GUI."""
         try:
-            if self.connection_manager:
-                if enabled:
-                    # Try to start screen sharing on server
-                    logger.info("Attempting to start screen sharing...")
-                    
-                    # Send a test message first to see if communication works
-                    test_message = TCPMessage(
-                        msg_type='test_message',
-                        sender_id=self.connection_manager.get_client_id(),
-                        data={'test': 'screen_share_request'}
-                    )
-                    logger.info(f"Sending test message: {test_message.msg_type}")
-                    test_result = self.connection_manager._send_tcp_message(test_message)
-                    logger.info(f"Test message send result: {test_result}")
-                    
-                    success = self.connection_manager.start_screen_sharing()
-                    if success:
-                        logger.info("Screen sharing start request sent to server - waiting for confirmation")
-                        # Don't start capture yet - wait for server confirmation
-                        # The actual capture will start when we receive confirmation
-                    else:
-                        logger.error("Failed to send screen sharing start request")
-                        self.gui_manager.show_error("Screen Share Error", "Failed to start screen sharing")
-                        return
+            if enabled:
+                # Check if we're already presenter
+                if self.screen_manager and self.screen_manager.is_presenter:
+                    # Start screen sharing
+                    self.screen_manager.start_screen_sharing()
                 else:
-                    # Stop screen sharing
-                    success = self.connection_manager.stop_screen_sharing()
-                    if success:
-                        logger.info("Screen sharing stop request sent to server")
-                        self._stop_screen_capture()
-                        self.gui_manager.set_screen_sharing_status(False)
+                    # Request presenter role first
+                    if self.screen_manager:
+                        self.screen_manager.request_presenter_role()
                     else:
+                        logger.error("Screen manager not available")
+                        self.gui_manager.show_error("Screen Share Error", "Screen sharing not available")
+            else:
+                # Stop screen sharing
+                if self.screen_manager:
+                    self.screen_manager.stop_screen_sharing()
+                else:
+                    logger.error("Screen manager not available")
                         logger.error("Failed to send screen sharing stop request")
             
             self.screen_sharing = enabled
@@ -606,53 +607,24 @@ class CollaborationClient:
     def _on_screen_share_start(self, message: TCPMessage):
         """Handle screen sharing start messages from other clients."""
         try:
-            if self.connection_manager:
-                participants = self.connection_manager.get_participants()
-                participant = participants.get(message.sender_id, {})
-                username = participant.get('username', message.sender_id)
-                
-                # Someone else started sharing - update GUI
-                self.gui_manager.update_presenter(username)
-                logger.info(f"{username} started screen sharing")
-        
+            if self.screen_manager:
+                self.screen_manager.handle_screen_share_message(message)
         except Exception as e:
             logger.error(f"Error handling screen share start: {e}")
     
     def _on_screen_share_stop(self, message: TCPMessage):
         """Handle screen sharing stop messages."""
         try:
-            if self.connection_manager:
-                participants = self.connection_manager.get_participants()
-                participant = participants.get(message.sender_id, {})
-                username = participant.get('username', message.sender_id)
-                
-                # Clear the presenter and re-enable sharing for everyone
-                self.gui_manager.update_presenter(None)
-                logger.info(f"{username} stopped screen sharing")
-        
+            if self.screen_manager:
+                self.screen_manager.handle_screen_share_message(message)
         except Exception as e:
             logger.error(f"Error handling screen share stop: {e}")
     
     def _on_screen_share_frame(self, message: TCPMessage):
         """Handle screen sharing frame data."""
         try:
-            # Extract frame data
-            frame_data_hex = message.data.get('frame_data')
-            if frame_data_hex:
-                # Convert hex back to bytes
-                frame_data = bytes.fromhex(frame_data_hex)
-                
-                # Get sender username
-                if self.connection_manager:
-                    participants = self.connection_manager.get_participants()
-                    participant = participants.get(message.sender_id, {})
-                    presenter_name = participant.get('username', message.sender_id)
-                    
-                    # Display frame in GUI
-                    logger.info(f"Received screen frame from {presenter_name}, size: {len(frame_data)} bytes")
-                    self.gui_manager.display_screen_frame(frame_data, presenter_name)
-                    logger.debug(f"Displaying screen frame from {presenter_name}")
-                
+            if self.screen_manager:
+                self.screen_manager.handle_screen_share_message(message)
         except Exception as e:
             logger.error(f"Error handling screen share frame: {e}")
     
@@ -665,9 +637,9 @@ class CollaborationClient:
             # Show error to user and stop local screen sharing
             self.gui_manager.show_error("Screen Share Error", error_msg)
             
-            # Stop local screen capture if it was started
-            if hasattr(self, 'screen_capture') and self.screen_capture:
-                self.screen_capture.stop_capture()
+            # Stop screen sharing via screen manager
+            if self.screen_manager:
+                self.screen_manager.stop_screen_sharing()
             
             # Update GUI to show stopped status
             self.gui_manager.set_screen_sharing_status(False)
@@ -681,11 +653,30 @@ class CollaborationClient:
             status = message.data.get('status')
             if status == 'started':
                 logger.info("Server confirmed screen sharing start - beginning capture")
-                self._start_screen_capture()
-                self.gui_manager.set_screen_sharing_status(True)
+                if hasattr(self, 'screen_manager'):
+                    self.screen_manager.handle_screen_share_confirmed()
+                else:
+                    logger.error("Screen manager not available")
             
         except Exception as e:
             logger.error(f"Error handling screen share confirmation: {e}")
+    
+    def _on_presenter_granted(self, message: TCPMessage):
+        """Handle presenter role granted message."""
+        try:
+            if self.screen_manager:
+                self.screen_manager.handle_presenter_granted()
+        except Exception as e:
+            logger.error(f"Error handling presenter granted: {e}")
+    
+    def _on_presenter_denied(self, message: TCPMessage):
+        """Handle presenter role denied message."""
+        try:
+            reason = message.data.get('reason', '')
+            if self.screen_manager:
+                self.screen_manager.handle_presenter_denied(reason)
+        except Exception as e:
+            logger.error(f"Error handling presenter denied: {e}")
     
     def _on_file_available(self, message: TCPMessage):
         """Handle file available notifications."""

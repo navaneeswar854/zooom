@@ -389,8 +389,34 @@ class NetworkHandler:
                 )
                 self._send_tcp_message(sender_socket, response)
             
+            elif message.msg_type == MessageType.PRESENTER_REQUEST.value:
+                # Handle presenter role request
+                success, msg = self.session_manager.request_presenter_role(sender_id)
+                
+                if success:
+                    logger.info(f"Granted presenter role to client {sender_id}")
+                    # Send granted message back to the client
+                    granted_message = MessageFactory.create_presenter_granted_message('server', sender_id)
+                    self._send_tcp_message(sender_socket, granted_message)
+                else:
+                    logger.warning(f"Denied presenter role to client {sender_id}: {msg}")
+                    # Send denied message back to client
+                    denied_message = MessageFactory.create_presenter_denied_message('server', msg)
+                    self._send_tcp_message(sender_socket, denied_message)
+            
             elif message.msg_type == MessageType.SCREEN_SHARE_START.value:
-                # Handle screen sharing start with lock system
+                # Handle screen sharing start - requires presenter role
+                presenter = self.session_manager.get_presenter()
+                if not presenter or presenter.client_id != sender_id:
+                    logger.warning(f"Client {sender_id} attempted to start screen sharing without presenter role")
+                    error_message = TCPMessage(
+                        msg_type=MessageType.SCREEN_SHARE_ERROR.value,
+                        sender_id='server',
+                        data={'error': 'You must be the presenter to start screen sharing'}
+                    )
+                    self._send_tcp_message(sender_socket, error_message)
+                    return
+                
                 success, msg = self.session_manager.start_screen_sharing(sender_id)
                 
                 if success:

@@ -686,14 +686,29 @@ class ScreenShareFrame(ModuleFrame):
         self.screen_share_callback = callback
     
     def _toggle_screen_share(self):
-        """Toggle screen sharing on/off."""
+        """Toggle screen sharing on/off or request presenter role."""
         logger.info(f"Screen share button clicked. Current sharing: {self.is_sharing}")
-        if self.screen_share_callback:
-            new_state = not self.is_sharing
-            logger.info(f"Calling screen share callback with: {new_state}")
-            self.screen_share_callback(new_state)
+        
+        # Check button text to determine action
+        button_text = self.share_button.cget('text')
+        
+        if button_text == "Request Presenter Role":
+            # Request presenter role
+            if self.screen_share_callback:
+                logger.info("Requesting presenter role")
+                self.screen_share_callback(True)  # This will trigger presenter role request
+        elif button_text.startswith("Start"):
+            # Start screen sharing (already presenter)
+            if self.screen_share_callback:
+                logger.info("Starting screen sharing")
+                self.screen_share_callback(True)
+        elif button_text.startswith("Stop"):
+            # Stop screen sharing
+            if self.screen_share_callback:
+                logger.info("Stopping screen sharing")
+                self.screen_share_callback(False)
         else:
-            logger.warning("No screen share callback set!")
+            logger.warning(f"Unknown button state: {button_text}")
     
     def update_presenter(self, presenter_name: str = None):
         """Update presenter display (for showing who is currently presenting)."""
@@ -843,6 +858,19 @@ class ScreenShareFrame(ModuleFrame):
     def handle_screen_share_stopped(self):
         """Handle screen sharing being stopped."""
         self.set_sharing_status(False)
+    
+    def set_presenter_status(self, is_presenter: bool, presenter_name: str = None):
+        """Set presenter status for screen sharing."""
+        if is_presenter:
+            self.share_button.config(state='normal', text="Start Screen Share")
+            self.sharing_status.config(text="You are the presenter", foreground='blue')
+        else:
+            if presenter_name:
+                self.share_button.config(state='disabled', text=f"{presenter_name} is presenter")
+                self.sharing_status.config(text=f"{presenter_name} is the presenter", foreground='black')
+            else:
+                self.share_button.config(state='normal', text="Request Presenter Role")
+                self.sharing_status.config(text="Ready to request presenter role", foreground='black')
 
 
 class FileTransferFrame(ModuleFrame):

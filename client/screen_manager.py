@@ -121,28 +121,18 @@ class ScreenManager:
                 logger.warning("Screen sharing already active")
                 return True
         
-        # Send start message to server
+        # Send start message to server first
         if self.connection_manager:
             success = self.connection_manager.start_screen_sharing()
             if not success:
                 logger.error("Failed to send screen sharing start message")
                 return False
-        
-        # Start screen capture
-        success = self.screen_capture.start_capture()
-        
-        if success:
-            with self._lock:
-                self.is_sharing = True
             
-            # Update GUI
-            if self.gui_manager:
-                self.gui_manager.set_screen_sharing_status(True)
-            
-            logger.info("Screen sharing started")
-            return True
+            # Wait for server confirmation before starting capture
+            logger.info("Waiting for server confirmation to start screen capture...")
+            return True  # Actual capture will start when server confirms
         else:
-            logger.error("Failed to start screen capture")
+            logger.error("No connection manager available")
             return False
     
     def stop_screen_sharing(self):
@@ -177,7 +167,33 @@ class ScreenManager:
         if self.gui_manager:
             self.gui_manager.handle_presenter_granted()
         
-        logger.info("Presenter role granted")
+        logger.info("Presenter role granted - you can now start screen sharing")
+        
+        # Automatically start screen sharing after getting presenter role
+        logger.info("Auto-starting screen sharing after presenter role granted")
+        self.start_screen_sharing()
+    
+    def handle_screen_share_confirmed(self):
+        """Handle server confirmation to start screen sharing."""
+        logger.info("Server confirmed screen sharing - starting capture")
+        
+        # Now actually start screen capture
+        success = self.screen_capture.start_capture()
+        
+        if success:
+            with self._lock:
+                self.is_sharing = True
+            
+            # Update GUI
+            if self.gui_manager:
+                self.gui_manager.set_screen_sharing_status(True)
+            
+            logger.info("Screen capture started successfully")
+        else:
+            logger.error("Failed to start screen capture after server confirmation")
+            # Notify server that we failed to start
+            if self.connection_manager:
+                self.connection_manager.stop_screen_sharing()
     
     def handle_presenter_denied(self, reason: str = ""):
         """Handle presenter role being denied by server."""

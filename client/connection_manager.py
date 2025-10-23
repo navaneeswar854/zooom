@@ -443,41 +443,7 @@ class ConnectionManager:
         
         return self._send_tcp_message(status_message)
     
-    def start_screen_sharing(self) -> bool:
-        """
-        Start screen sharing session.
-        
-        Returns:
-            bool: True if request sent successfully
-        """
-        if not self._is_connected():
-            return False
-        
-        screen_share_message = TCPMessage(
-            msg_type=MessageType.SCREEN_SHARE.value,
-            sender_id=self.client_id,
-            data={'action': 'start'}
-        )
-        
-        return self._send_tcp_message(screen_share_message)
-    
-    def stop_screen_sharing(self) -> bool:
-        """
-        Stop screen sharing session.
-        
-        Returns:
-            bool: True if request sent successfully
-        """
-        if not self._is_connected():
-            return False
-        
-        screen_share_message = TCPMessage(
-            msg_type=MessageType.SCREEN_SHARE.value,
-            sender_id=self.client_id,
-            data={'action': 'stop'}
-        )
-        
-        return self._send_tcp_message(screen_share_message)
+
     
     def upload_file(self, file_path: str, description: str = "") -> tuple[bool, str]:
         """
