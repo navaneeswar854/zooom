@@ -60,6 +60,7 @@ class SessionManager:
         
         # Screen sharing state
         self.screen_sharing_active = False
+        self.active_screen_sharer: Optional[str] = None  # Client ID of who is currently sharing
         self.last_screen_frame_time = None
         
         # File storage setup
@@ -118,6 +119,12 @@ class SessionManager:
             # Add leave message to chat history
             leave_message = MessageFactory.create_client_leave_message(client_id)
             self.chat_history.append(leave_message)
+            
+            # If this client was sharing screen, stop it
+            if self.active_screen_sharer == client_id:
+                self.active_screen_sharer = None
+                self.screen_sharing_active = False
+                logger.info(f"Screen sharing stopped due to client {client_id} disconnection")
             
             # Remove client from session
             del self.clients[client_id]
@@ -288,6 +295,77 @@ class SessionManager:
         """
         with self._lock:
             return self.active_presenter
+    
+    def start_screen_sharing(self, client_id: str) -> tuple[bool, str]:
+        """
+        Start screen sharing for a client (with lock system).
+        
+        Args:
+            client_id: The unique ID of the client starting screen sharing
+            
+        Returns:
+            tuple: (success, message)
+        """
+        with self._lock:
+            if self.active_screen_sharer and self.active_screen_sharer != client_id:
+                # Someone else is already sharing
+                sharer = self.clients.get(self.active_screen_sharer)
+                sharer_name = sharer.username if sharer else "Unknown"
+                return False, f"{sharer_name} is already sharing their screen"
+            
+            # Set this client as the active sharer
+            self.active_screen_sharer = client_id
+            self.screen_sharing_active = True
+            
+            client = self.clients.get(client_id)
+            if client:
+                logger.info(f"Screen sharing started by {client.username} ({client_id})")
+            
+            return True, "Screen sharing started"
+    
+    def stop_screen_sharing(self, client_id: str) -> tuple[bool, str]:
+        """
+        Stop screen sharing for a client.
+        
+        Args:
+            client_id: The unique ID of the client stopping screen sharing
+            
+        Returns:
+            tuple: (success, message)
+        """
+        with self._lock:
+            if self.active_screen_sharer != client_id:
+                return False, "You are not currently sharing your screen"
+            
+            # Clear the active sharer
+            self.active_screen_sharer = None
+            self.screen_sharing_active = False
+            
+            client = self.clients.get(client_id)
+            if client:
+                logger.info(f"Screen sharing stopped by {client.username} ({client_id})")
+            
+            return True, "Screen sharing stopped"
+    
+    def get_active_screen_sharer(self) -> Optional[str]:
+        """
+        Get the current active screen sharer client ID.
+        
+        Returns:
+            str: Current screen sharer client ID or None if no one is sharing
+        """
+        with self._lock:
+            return self.active_screen_sharer
+    
+    def is_screen_sharing_active(self) -> bool:
+        """
+        Check if screen sharing is currently active.
+        
+        Returns:
+            bool: True if someone is sharing their screen
+        """
+        with self._lock:
+            return self.screen_sharing_active
     
     def start_screen_sharing(self, client_id: str) -> bool:
         """

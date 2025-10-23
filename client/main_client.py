@@ -138,6 +138,9 @@ class CollaborationClient:
                 MessageType.SCREEN_SHARE.value, self._on_screen_share_frame
             )
             self.connection_manager.register_message_callback(
+                'screen_share_error', self._on_screen_share_error
+            )
+            self.connection_manager.register_message_callback(
                 MessageType.FILE_AVAILABLE.value, self._on_file_available
             )
             self.connection_manager.register_message_callback(
@@ -631,11 +634,31 @@ class CollaborationClient:
                     presenter_name = participant.get('username', message.sender_id)
                     
                     # Display frame in GUI
+                    logger.info(f"Received screen frame from {presenter_name}, size: {len(frame_data)} bytes")
                     self.gui_manager.display_screen_frame(frame_data, presenter_name)
                     logger.debug(f"Displaying screen frame from {presenter_name}")
                 
         except Exception as e:
             logger.error(f"Error handling screen share frame: {e}")
+    
+    def _on_screen_share_error(self, message: TCPMessage):
+        """Handle screen share error messages."""
+        try:
+            error_msg = message.data.get('error', 'Unknown error')
+            logger.warning(f"Screen share error: {error_msg}")
+            
+            # Show error to user and stop local screen sharing
+            self.gui_manager.show_error("Screen Share Error", error_msg)
+            
+            # Stop local screen capture if it was started
+            if hasattr(self, 'screen_capture') and self.screen_capture:
+                self.screen_capture.stop_capture()
+            
+            # Update GUI to show stopped status
+            self.gui_manager.set_screen_sharing_status(False)
+            
+        except Exception as e:
+            logger.error(f"Error handling screen share error: {e}")
     
     def _on_file_available(self, message: TCPMessage):
         """Handle file available notifications."""

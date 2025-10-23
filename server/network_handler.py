@@ -390,22 +390,40 @@ class NetworkHandler:
                 self._send_tcp_message(sender_socket, response)
             
             elif message.msg_type == MessageType.SCREEN_SHARE_START.value:
-                # Handle screen sharing start
-                logger.info(f"Client {sender_id} started screen sharing")
+                # Handle screen sharing start with lock system
+                success, msg = self.session_manager.start_screen_sharing(sender_id)
                 
-                # Broadcast start message to other clients
-                self._broadcast_tcp_message(message, exclude_client=sender_id)
+                if success:
+                    logger.info(f"Client {sender_id} started screen sharing")
+                    # Broadcast start message to other clients
+                    self._broadcast_tcp_message(message, exclude_client=sender_id)
+                else:
+                    logger.warning(f"Client {sender_id} failed to start screen sharing: {msg}")
+                    # Send error message back to client
+                    error_message = TCPMessage(
+                        msg_type='screen_share_error',
+                        sender_id='server',
+                        data={'error': msg}
+                    )
+                    self._send_tcp_message(sender_socket, error_message)
             
             elif message.msg_type == MessageType.SCREEN_SHARE_STOP.value:
                 # Handle screen sharing stop
-                logger.info(f"Client {sender_id} stopped screen sharing")
+                success, msg = self.session_manager.stop_screen_sharing(sender_id)
                 
-                # Broadcast stop message to other clients
-                self._broadcast_tcp_message(message, exclude_client=sender_id)
+                if success:
+                    logger.info(f"Client {sender_id} stopped screen sharing")
+                    # Broadcast stop message to other clients
+                    self._broadcast_tcp_message(message, exclude_client=sender_id)
+                else:
+                    logger.warning(f"Client {sender_id} failed to stop screen sharing: {msg}")
             
             elif message.msg_type == MessageType.SCREEN_SHARE.value:
-                # Handle screen frame data - relay to all other clients
-                self._broadcast_tcp_message(message, exclude_client=sender_id)
+                # Handle screen frame data - only relay if sender is the active sharer
+                if self.session_manager.get_active_screen_sharer() == sender_id:
+                    self._broadcast_tcp_message(message, exclude_client=sender_id)
+                else:
+                    logger.warning(f"Received screen frame from non-active sharer {sender_id}")
             
             elif message.msg_type == MessageType.FILE_METADATA.value:
                 # Handle file metadata for upload

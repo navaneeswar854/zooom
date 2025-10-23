@@ -40,6 +40,7 @@ class MessageType(Enum):
     UDP_ADDRESS_UPDATE = "udp_address_update"
     SERVER_SHUTDOWN = "server_shutdown"
     QUALITY_UPDATE = "quality_update"
+    SCREEN_SHARE_ERROR = "screen_share_error"
     
     # UDP Packet Types
     AUDIO = "audio"

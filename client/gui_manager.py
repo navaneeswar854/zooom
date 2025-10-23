@@ -699,6 +699,16 @@ class ScreenShareFrame(ModuleFrame):
         """Update presenter display (for showing who is currently presenting)."""
         self.current_presenter_name = presenter_name
         
+        # Update button state based on who is sharing
+        if presenter_name and not self.is_sharing:
+            # Someone else is sharing - disable our button
+            self.share_button.config(state='disabled', text=f"{presenter_name} is sharing")
+            self.sharing_status.config(text=f"{presenter_name} is sharing")
+        elif not presenter_name and not self.is_sharing:
+            # No one is sharing - enable our button
+            self.share_button.config(state='normal', text="Start Screen Share")
+            self.sharing_status.config(text="Ready to share")
+        
         # Update display based on sharing status
         if not self.is_sharing:
             if presenter_name:
@@ -744,19 +754,34 @@ class ScreenShareFrame(ModuleFrame):
             # Convert frame data to image
             image = Image.open(io.BytesIO(frame_data))
             
-            # Resize image to fit canvas while maintaining aspect ratio
+            # Show canvas first to ensure it's visible
+            if not self.screen_canvas.winfo_viewable():
+                self.screen_label.pack_forget()
+                self.screen_canvas.pack(fill='both', expand=True)
+            
+            # Force canvas to update its size
+            self.screen_canvas.update_idletasks()
+            
+            # Get canvas dimensions
             canvas_width = self.screen_canvas.winfo_width()
             canvas_height = self.screen_canvas.winfo_height()
             
-            if canvas_width > 1 and canvas_height > 1:  # Canvas is initialized
-                # Calculate scaling to fit canvas
+            logger.info(f"Canvas size: {canvas_width}x{canvas_height}, Image size: {image.size}")
+            
+            if canvas_width > 10 and canvas_height > 10:  # Canvas is properly initialized
+                # Calculate scaling to fit canvas while maintaining aspect ratio
                 img_width, img_height = image.size
                 scale_w = canvas_width / img_width
                 scale_h = canvas_height / img_height
                 scale = min(scale_w, scale_h)
                 
+                # Use a minimum scale to ensure visibility
+                scale = max(scale, 0.1)
+                
                 new_width = int(img_width * scale)
                 new_height = int(img_height * scale)
+                
+                logger.info(f"Scaling image from {img_width}x{img_height} to {new_width}x{new_height} (scale: {scale:.2f})")
                 
                 # Resize image
                 image = image.resize((new_width, new_height), Image.LANCZOS)
@@ -766,20 +791,26 @@ class ScreenShareFrame(ModuleFrame):
                 
                 # Clear canvas and display image
                 self.screen_canvas.delete("all")
-                x = (canvas_width - new_width) // 2
-                y = (canvas_height - new_height) // 2
+                
+                # Center the image in the canvas
+                x = max(0, (canvas_width - new_width) // 2)
+                y = max(0, (canvas_height - new_height) // 2)
+                
                 self.screen_canvas.create_image(x, y, anchor='nw', image=photo)
                 
                 # Keep a reference to prevent garbage collection
                 self.screen_canvas.image = photo
                 
-                # Show canvas if not already shown
+                logger.info(f"Image displayed at position ({x}, {y})")
+                
+            else:
+                # Canvas not ready, try again later or show text
+                logger.warning(f"Canvas not ready: {canvas_width}x{canvas_height}")
+                self.screen_label.config(text=f"Loading screen from {presenter_name}...")
+                # Try to show canvas anyway
                 if not self.screen_canvas.winfo_viewable():
                     self.screen_label.pack_forget()
                     self.screen_canvas.pack(fill='both', expand=True)
-            else:
-                # Fallback to text if canvas not ready
-                self.screen_label.config(text=f"Receiving screen from {presenter_name}")
                 
         except Exception as e:
             logger.error(f"Error displaying screen frame: {e}")
