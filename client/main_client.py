@@ -353,7 +353,9 @@ class CollaborationClient:
                         sender_id=self.connection_manager.get_client_id(),
                         data={'test': 'screen_share_request'}
                     )
-                    self.connection_manager._send_tcp_message(test_message)
+                    logger.info(f"Sending test message: {test_message.msg_type}")
+                    test_result = self.connection_manager._send_tcp_message(test_message)
+                    logger.info(f"Test message send result: {test_result}")
                     
                     success = self.connection_manager.start_screen_sharing()
                     if success:
@@ -877,7 +879,9 @@ class CollaborationClient:
     def _start_screen_capture(self):
         """Start screen capture."""
         try:
+            import traceback
             logger.info("Starting screen capture...")
+            logger.info(f"Screen capture called from: {traceback.format_stack()[-2].strip()}")
             
             if not hasattr(self, 'screen_capture') or self.screen_capture is None:
                 # Import and initialize screen capture

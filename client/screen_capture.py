@@ -152,6 +152,10 @@ class ScreenCapture:
         Returns:
             bool: True if capture started successfully
         """
+        import traceback
+        logger.info("ScreenCapture.start_capture() called!")
+        logger.info(f"Called from: {traceback.format_stack()[-2].strip()}")
+        
         if not self.capture_available:
             logger.error("Screen capture not available on this platform")
             return False
