@@ -727,15 +727,7 @@ class ScreenShareFrame(ModuleFrame):
                 self.screen_label.config(text=f"{self.current_presenter_name} is sharing")
             else:
                 self.screen_label.config(text="No screen sharing active")
-        
-        if presenter_name:
-            if not self.is_presenter:
-                self.presenter_label.config(text=f"Presenter: {presenter_name}")
-                if not self.is_sharing:
-                    self.screen_label.config(text=f"Waiting for {presenter_name} to share")
-        else:
-            self.presenter_label.config(text="No presenter")
-            self.screen_label.config(text="No screen sharing active")
+
     
     def display_screen_frame(self, frame_data, presenter_name: str):
         """Display a screen frame from the presenter."""
@@ -748,47 +740,46 @@ class ScreenShareFrame(ModuleFrame):
                 self.update_presenter(presenter_name)
                 logger.info(f"Now receiving screen from {presenter_name}")
             
-            # Only display if we're not the one sharing
-            if not self.is_sharing:
-                # Convert frame data to image
-                image = Image.open(io.BytesIO(frame_data))
+            # Display screen frame for everyone (including the sharer for feedback)
+            # Convert frame data to image
+            image = Image.open(io.BytesIO(frame_data))
+            
+            # Resize image to fit canvas while maintaining aspect ratio
+            canvas_width = self.screen_canvas.winfo_width()
+            canvas_height = self.screen_canvas.winfo_height()
+            
+            if canvas_width > 1 and canvas_height > 1:  # Canvas is initialized
+                # Calculate scaling to fit canvas
+                img_width, img_height = image.size
+                scale_w = canvas_width / img_width
+                scale_h = canvas_height / img_height
+                scale = min(scale_w, scale_h)
                 
-                # Resize image to fit canvas while maintaining aspect ratio
-                canvas_width = self.screen_canvas.winfo_width()
-                canvas_height = self.screen_canvas.winfo_height()
+                new_width = int(img_width * scale)
+                new_height = int(img_height * scale)
                 
-                if canvas_width > 1 and canvas_height > 1:  # Canvas is initialized
-                    # Calculate scaling to fit canvas
-                    img_width, img_height = image.size
-                    scale_w = canvas_width / img_width
-                    scale_h = canvas_height / img_height
-                    scale = min(scale_w, scale_h)
-                    
-                    new_width = int(img_width * scale)
-                    new_height = int(img_height * scale)
-                    
-                    # Resize image
-                    image = image.resize((new_width, new_height), Image.LANCZOS)
-                    
-                    # Convert to PhotoImage for tkinter
-                    photo = ImageTk.PhotoImage(image)
-                    
-                    # Clear canvas and display image
-                    self.screen_canvas.delete("all")
-                    x = (canvas_width - new_width) // 2
-                    y = (canvas_height - new_height) // 2
-                    self.screen_canvas.create_image(x, y, anchor='nw', image=photo)
-                    
-                    # Keep a reference to prevent garbage collection
-                    self.screen_canvas.image = photo
-                    
-                    # Show canvas if not already shown
-                    if not self.screen_canvas.winfo_viewable():
-                        self.screen_label.pack_forget()
-                        self.screen_canvas.pack(fill='both', expand=True)
-                else:
-                    # Fallback to text if canvas not ready
-                    self.screen_label.config(text=f"Receiving screen from {presenter_name}")
+                # Resize image
+                image = image.resize((new_width, new_height), Image.LANCZOS)
+                
+                # Convert to PhotoImage for tkinter
+                photo = ImageTk.PhotoImage(image)
+                
+                # Clear canvas and display image
+                self.screen_canvas.delete("all")
+                x = (canvas_width - new_width) // 2
+                y = (canvas_height - new_height) // 2
+                self.screen_canvas.create_image(x, y, anchor='nw', image=photo)
+                
+                # Keep a reference to prevent garbage collection
+                self.screen_canvas.image = photo
+                
+                # Show canvas if not already shown
+                if not self.screen_canvas.winfo_viewable():
+                    self.screen_label.pack_forget()
+                    self.screen_canvas.pack(fill='both', expand=True)
+            else:
+                # Fallback to text if canvas not ready
+                self.screen_label.config(text=f"Receiving screen from {presenter_name}")
                 
         except Exception as e:
             logger.error(f"Error displaying screen frame: {e}")

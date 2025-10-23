@@ -841,6 +841,28 @@ class CollaborationClient:
                     client_id=client_id,
                     connection_manager=self.connection_manager
                 )
+                
+                # Set up local frame display callback so the sharer can see their own screen
+                def local_frame_callback(frame):
+                    try:
+                        # Convert numpy frame to JPEG bytes for display
+                        import cv2
+                        success, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                        if success:
+                            frame_data = encoded_frame.tobytes()
+                            # Get our own username
+                            if self.connection_manager:
+                                participants = self.connection_manager.get_participants()
+                                client_id = self.connection_manager.get_client_id()
+                                participant = participants.get(client_id, {})
+                                username = participant.get('username', 'You')
+                                
+                                # Display our own frame
+                                self.gui_manager.display_screen_frame(frame_data, f"{username} (You)")
+                    except Exception as e:
+                        logger.warning(f"Error in local frame display: {e}")
+                
+                self.screen_capture.set_frame_callback(local_frame_callback)
             
             success = self.screen_capture.start_capture()
             if success:
