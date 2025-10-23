@@ -352,11 +352,15 @@ class CollaborationClient:
             
             logger.info(f"Screen sharing {'started' if enabled else 'stopped'}")
             
-            # TODO: Start/stop screen capture
+            # Start/stop screen capture
             if enabled:
                 self._start_screen_capture()
+                # Update GUI to show sharing status
+                self.gui_manager.set_screen_sharing_status(True)
             else:
                 self._stop_screen_capture()
+                # Update GUI to show stopped status
+                self.gui_manager.set_screen_sharing_status(False)
         
         except Exception as e:
             logger.error(f"Error toggling screen share: {e}")
@@ -620,10 +624,15 @@ class CollaborationClient:
                 # Convert hex back to bytes
                 frame_data = bytes.fromhex(frame_data_hex)
                 
-                # Pass frame data to video manager for display
-                if hasattr(self, 'video_manager') and self.video_manager:
-                    # TODO: Display screen share frame in video manager
-                    pass
+                # Get sender username
+                if self.connection_manager:
+                    participants = self.connection_manager.get_participants()
+                    participant = participants.get(message.sender_id, {})
+                    presenter_name = participant.get('username', message.sender_id)
+                    
+                    # Display frame in GUI
+                    self.gui_manager.display_screen_frame(frame_data, presenter_name)
+                    logger.debug(f"Displaying screen frame from {presenter_name}")
                 
         except Exception as e:
             logger.error(f"Error handling screen share frame: {e}")
@@ -820,17 +829,23 @@ class CollaborationClient:
     def _start_screen_capture(self):
         """Start screen capture."""
         try:
+            logger.info("Starting screen capture...")
+            
             if not hasattr(self, 'screen_capture') or self.screen_capture is None:
                 # Import and initialize screen capture
                 from client.screen_capture import ScreenCapture
+                client_id = self.connection_manager.get_client_id() if self.connection_manager else "unknown"
+                logger.info(f"Initializing screen capture for client {client_id}")
+                
                 self.screen_capture = ScreenCapture(
-                    client_id=self.connection_manager.get_client_id() if self.connection_manager else "unknown",
+                    client_id=client_id,
                     connection_manager=self.connection_manager
                 )
             
             success = self.screen_capture.start_capture()
             if success:
                 logger.info("Screen capture started successfully")
+                self.gui_manager.show_info("Screen Share", "Screen sharing started successfully")
             else:
                 logger.error("Failed to start screen capture")
                 self.gui_manager.show_error("Screen Share Error", "Failed to start screen capture")
