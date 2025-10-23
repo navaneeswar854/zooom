@@ -307,10 +307,13 @@ class SessionManager:
             tuple: (success, message)
         """
         with self._lock:
+            logger.info(f"Screen sharing start request from {client_id}, current sharer: {self.active_screen_sharer}")
+            
             if self.active_screen_sharer and self.active_screen_sharer != client_id:
                 # Someone else is already sharing
                 sharer = self.clients.get(self.active_screen_sharer)
                 sharer_name = sharer.username if sharer else "Unknown"
+                logger.warning(f"Rejecting screen share from {client_id}, {sharer_name} is already sharing")
                 return False, f"{sharer_name} is already sharing their screen"
             
             # Set this client as the active sharer

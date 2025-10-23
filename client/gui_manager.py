@@ -704,10 +704,17 @@ class ScreenShareFrame(ModuleFrame):
             # Someone else is sharing - disable our button
             self.share_button.config(state='disabled', text=f"{presenter_name} is sharing")
             self.sharing_status.config(text=f"{presenter_name} is sharing")
+            # Show their screen area
+            if not self.screen_canvas.winfo_viewable():
+                self.screen_label.pack_forget()
+                self.screen_canvas.pack(fill='both', expand=True)
         elif not presenter_name and not self.is_sharing:
             # No one is sharing - enable our button
             self.share_button.config(state='normal', text="Start Screen Share")
             self.sharing_status.config(text="Ready to share")
+            # Hide screen area
+            self.screen_canvas.pack_forget()
+            self.screen_label.pack(expand=True)
         
         # Update display based on sharing status
         if not self.is_sharing:
@@ -723,12 +730,12 @@ class ScreenShareFrame(ModuleFrame):
         self._update_status_indicator()
         
         if is_sharing:
-            self.share_button.config(text="Stop Screen Share")
+            self.share_button.config(text="Stop Screen Share", state='normal')
             self.sharing_status.config(text="You are sharing", foreground='green')
             self.screen_label.pack_forget()
             self.screen_canvas.pack(fill='both', expand=True)
         else:
-            self.share_button.config(text="Start Screen Share")
+            self.share_button.config(text="Start Screen Share", state='normal')
             self.sharing_status.config(text="Ready to share", foreground='black')
             self.screen_canvas.pack_forget()
             self.screen_label.pack(expand=True)
