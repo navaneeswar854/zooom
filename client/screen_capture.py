@@ -53,10 +53,10 @@ class ScreenCapture:
     """
     
     # Screen capture configuration constants
-    DEFAULT_FPS = 5  # Lower FPS for screen sharing to reduce bandwidth
-    COMPRESSION_QUALITY = 70  # Higher quality for screen content
-    MAX_WIDTH = 1920
-    MAX_HEIGHT = 1080
+    DEFAULT_FPS = 2  # Very low FPS to prevent connection issues
+    COMPRESSION_QUALITY = 30  # Lower quality to reduce frame size
+    MAX_WIDTH = 800  # Smaller resolution to prevent large frames
+    MAX_HEIGHT = 600
     
     def __init__(self, client_id: str, connection_manager=None):
         """

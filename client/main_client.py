@@ -138,7 +138,10 @@ class CollaborationClient:
                 MessageType.SCREEN_SHARE.value, self._on_screen_share_frame
             )
             self.connection_manager.register_message_callback(
-                'screen_share_error', self._on_screen_share_error
+                MessageType.SCREEN_SHARE_ERROR.value, self._on_screen_share_error
+            )
+            self.connection_manager.register_message_callback(
+                'screen_share_confirmed', self._on_screen_share_confirmed
             )
             self.connection_manager.register_message_callback(
                 MessageType.FILE_AVAILABLE.value, self._on_file_available
@@ -339,31 +342,29 @@ class CollaborationClient:
     def _handle_screen_share_toggle(self, enabled: bool):
         """Handle screen sharing toggle from GUI."""
         try:
-            self.screen_sharing = enabled
-            
             if self.connection_manager:
                 if enabled:
+                    # Try to start screen sharing on server
                     success = self.connection_manager.start_screen_sharing()
+                    if success:
+                        logger.info("Screen sharing start request sent to server")
+                        # Don't start capture yet - wait for server confirmation
+                        # The actual capture will start when we receive confirmation
+                    else:
+                        logger.error("Failed to send screen sharing start request")
+                        self.gui_manager.show_error("Screen Share Error", "Failed to start screen sharing")
+                        return
                 else:
+                    # Stop screen sharing
                     success = self.connection_manager.stop_screen_sharing()
-                
-                if not success:
-                    self.gui_manager.show_error(
-                        "Screen Share Error", 
-                        "Failed to update screen sharing status"
-                    )
+                    if success:
+                        logger.info("Screen sharing stop request sent to server")
+                        self._stop_screen_capture()
+                        self.gui_manager.set_screen_sharing_status(False)
+                    else:
+                        logger.error("Failed to send screen sharing stop request")
             
-            logger.info(f"Screen sharing {'started' if enabled else 'stopped'}")
-            
-            # Start/stop screen capture
-            if enabled:
-                self._start_screen_capture()
-                # Update GUI to show sharing status
-                self.gui_manager.set_screen_sharing_status(True)
-            else:
-                self._stop_screen_capture()
-                # Update GUI to show stopped status
-                self.gui_manager.set_screen_sharing_status(False)
+            self.screen_sharing = enabled
         
         except Exception as e:
             logger.error(f"Error toggling screen share: {e}")
@@ -591,14 +592,14 @@ class CollaborationClient:
             logger.error(f"Error handling participant status update: {e}")
     
     def _on_screen_share_start(self, message: TCPMessage):
-        """Handle screen sharing start messages."""
+        """Handle screen sharing start messages from other clients."""
         try:
             if self.connection_manager:
                 participants = self.connection_manager.get_participants()
                 participant = participants.get(message.sender_id, {})
                 username = participant.get('username', message.sender_id)
                 
-                # Update GUI to show someone else is sharing
+                # Someone else started sharing - update GUI
                 self.gui_manager.update_presenter(username)
                 logger.info(f"{username} started screen sharing")
         
@@ -661,6 +662,18 @@ class CollaborationClient:
             
         except Exception as e:
             logger.error(f"Error handling screen share error: {e}")
+    
+    def _on_screen_share_confirmed(self, message: TCPMessage):
+        """Handle screen share confirmation from server."""
+        try:
+            status = message.data.get('status')
+            if status == 'started':
+                logger.info("Server confirmed screen sharing start - beginning capture")
+                self._start_screen_capture()
+                self.gui_manager.set_screen_sharing_status(True)
+            
+        except Exception as e:
+            logger.error(f"Error handling screen share confirmation: {e}")
     
     def _on_file_available(self, message: TCPMessage):
         """Handle file available notifications."""

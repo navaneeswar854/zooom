@@ -395,13 +395,22 @@ class NetworkHandler:
                 
                 if success:
                     logger.info(f"Client {sender_id} started screen sharing")
+                    
+                    # Send confirmation back to the sender
+                    confirm_message = TCPMessage(
+                        msg_type='screen_share_confirmed',
+                        sender_id='server',
+                        data={'status': 'started'}
+                    )
+                    self._send_tcp_message(sender_socket, confirm_message)
+                    
                     # Broadcast start message to other clients
                     self._broadcast_tcp_message(message, exclude_client=sender_id)
                 else:
                     logger.warning(f"Client {sender_id} failed to start screen sharing: {msg}")
                     # Send error message back to client
                     error_message = TCPMessage(
-                        msg_type='screen_share_error',
+                        msg_type=MessageType.SCREEN_SHARE_ERROR.value,
                         sender_id='server',
                         data={'error': msg}
                     )
