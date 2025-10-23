@@ -707,12 +707,19 @@ class MediaRelay:
             if not clients_with_udp:
                 return
             
+            # Validate sender exists in current session
+            sender_exists = any(client.client_id == audio_packet.sender_id for client in clients_with_udp)
+            if not sender_exists:
+                logger.warning(f"Received audio from unknown client {audio_packet.sender_id}, ignoring")
+                return
+            
             # Serialize packet once for efficiency
             packet_data = audio_packet.serialize()
             
             # Broadcast to all clients except sender (to prevent echo)
             broadcast_count = 0
             for client in clients_with_udp:
+                # Double-check to prevent echo - exclude sender by client_id
                 if client.client_id != audio_packet.sender_id:
                     try:
                         self.udp_server.send_data(packet_data, client.udp_address)
@@ -721,7 +728,7 @@ class MediaRelay:
                     except Exception as e:
                         logger.warning(f"Failed to send audio to client {client.client_id}: {e}")
             
-            logger.debug(f"Audio broadcasted to {broadcast_count} clients (excluding sender)")
+            logger.debug(f"Audio broadcasted to {broadcast_count} clients (excluding sender {audio_packet.sender_id})")
             
         except Exception as e:
             logger.error(f"Error broadcasting audio packet: {e}")
@@ -841,6 +848,29 @@ class MediaRelay:
             client_id: ID of the client
         """
         self.audio_mixer.remove_audio_stream(client_id)
+        logger.info(f"Removed audio stream for client {client_id}")
+    
+    def cleanup_stale_audio_streams(self):
+        """
+        Clean up audio streams for clients that are no longer in the session.
+        This helps prevent echo issues during reconnection.
+        """
+        try:
+            # Get current active client IDs
+            active_clients = {client.client_id for client in self.session_manager.get_clients_with_udp()}
+            
+            # Get client IDs in audio mixer
+            with self.audio_mixer._lock:
+                mixer_clients = set(self.audio_mixer.client_buffers.keys())
+            
+            # Remove stale clients from audio mixer
+            stale_clients = mixer_clients - active_clients
+            for stale_client_id in stale_clients:
+                logger.info(f"Cleaning up stale audio stream for client {stale_client_id}")
+                self.audio_mixer.remove_audio_stream(stale_client_id)
+                
+        except Exception as e:
+            logger.error(f"Error cleaning up stale audio streams: {e}")
     
     def add_client_video_stream(self, client_id: str):
         """

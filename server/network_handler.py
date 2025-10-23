@@ -248,6 +248,10 @@ class NetworkHandler:
                 client_id = self.session_manager.add_client(client_socket, username)
                 logger.info(f"Client {username} ({client_id}) joined from {client_address}")
                 
+                # Clean up any stale audio streams to prevent echo issues
+                if self.media_relay:
+                    self.media_relay.cleanup_stale_audio_streams()
+                
                 # Send welcome message with client ID
                 welcome_data = {
                     'client_id': client_id,
