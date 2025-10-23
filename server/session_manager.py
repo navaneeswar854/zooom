@@ -279,6 +279,16 @@ class SessionManager:
                 return self.clients.get(self.active_presenter)
             return None
     
+    def get_active_presenter(self) -> Optional[str]:
+        """
+        Get the current active presenter client ID.
+        
+        Returns:
+            str: Current presenter client ID or None if no presenter
+        """
+        with self._lock:
+            return self.active_presenter
+    
     def start_screen_sharing(self, client_id: str) -> bool:
         """
         Start screen sharing for the presenter.

@@ -129,7 +129,13 @@ class CollaborationClient:
                 'participant_status_update', self._on_participant_status_update
             )
             self.connection_manager.register_message_callback(
-                MessageType.SCREEN_SHARE.value, self._on_screen_share_message
+                MessageType.SCREEN_SHARE_START.value, self._on_screen_share_start
+            )
+            self.connection_manager.register_message_callback(
+                MessageType.SCREEN_SHARE_STOP.value, self._on_screen_share_stop
+            )
+            self.connection_manager.register_message_callback(
+                MessageType.SCREEN_SHARE.value, self._on_screen_share_frame
             )
             self.connection_manager.register_message_callback(
                 MessageType.FILE_AVAILABLE.value, self._on_file_available
@@ -577,23 +583,50 @@ class CollaborationClient:
         except Exception as e:
             logger.error(f"Error handling participant status update: {e}")
     
-    def _on_screen_share_message(self, message: TCPMessage):
-        """Handle screen sharing messages."""
+    def _on_screen_share_start(self, message: TCPMessage):
+        """Handle screen sharing start messages."""
         try:
-            action = message.data.get('action')
-            
             if self.connection_manager:
                 participants = self.connection_manager.get_participants()
                 participant = participants.get(message.sender_id, {})
                 username = participant.get('username', message.sender_id)
                 
-                if action == 'start':
-                    self.gui_manager.update_presenter(username)
-                elif action == 'stop':
-                    self.gui_manager.update_presenter(None)
+                self.gui_manager.update_presenter(username)
+                logger.info(f"{username} started screen sharing")
         
         except Exception as e:
-            logger.error(f"Error handling screen share message: {e}")
+            logger.error(f"Error handling screen share start: {e}")
+    
+    def _on_screen_share_stop(self, message: TCPMessage):
+        """Handle screen sharing stop messages."""
+        try:
+            if self.connection_manager:
+                participants = self.connection_manager.get_participants()
+                participant = participants.get(message.sender_id, {})
+                username = participant.get('username', message.sender_id)
+                
+                self.gui_manager.update_presenter(None)
+                logger.info(f"{username} stopped screen sharing")
+        
+        except Exception as e:
+            logger.error(f"Error handling screen share stop: {e}")
+    
+    def _on_screen_share_frame(self, message: TCPMessage):
+        """Handle screen sharing frame data."""
+        try:
+            # Extract frame data
+            frame_data_hex = message.data.get('frame_data')
+            if frame_data_hex:
+                # Convert hex back to bytes
+                frame_data = bytes.fromhex(frame_data_hex)
+                
+                # Pass frame data to video manager for display
+                if hasattr(self, 'video_manager') and self.video_manager:
+                    # TODO: Display screen share frame in video manager
+                    pass
+                
+        except Exception as e:
+            logger.error(f"Error handling screen share frame: {e}")
     
     def _on_file_available(self, message: TCPMessage):
         """Handle file available notifications."""
@@ -785,13 +818,38 @@ class CollaborationClient:
         logger.info("Audio capture stopped (placeholder)")
     
     def _start_screen_capture(self):
-        """Start screen capture (placeholder)."""
-        logger.info("Screen capture started (placeholder)")
-        # TODO: Implement screen capture
+        """Start screen capture."""
+        try:
+            if not hasattr(self, 'screen_capture') or self.screen_capture is None:
+                # Import and initialize screen capture
+                from client.screen_capture import ScreenCapture
+                self.screen_capture = ScreenCapture(
+                    client_id=self.connection_manager.get_client_id() if self.connection_manager else "unknown",
+                    connection_manager=self.connection_manager
+                )
+            
+            success = self.screen_capture.start_capture()
+            if success:
+                logger.info("Screen capture started successfully")
+            else:
+                logger.error("Failed to start screen capture")
+                self.gui_manager.show_error("Screen Share Error", "Failed to start screen capture")
+                
+        except Exception as e:
+            logger.error(f"Error starting screen capture: {e}")
+            self.gui_manager.show_error("Screen Share Error", f"Error starting screen capture: {e}")
     
     def _stop_screen_capture(self):
-        """Stop screen capture (placeholder)."""
-        logger.info("Screen capture stopped (placeholder)")
+        """Stop screen capture."""
+        try:
+            if hasattr(self, 'screen_capture') and self.screen_capture is not None:
+                self.screen_capture.stop_capture()
+                logger.info("Screen capture stopped successfully")
+            else:
+                logger.warning("No screen capture instance to stop")
+                
+        except Exception as e:
+            logger.error(f"Error stopping screen capture: {e}")
     
     def run(self):
         """Start the client application."""
