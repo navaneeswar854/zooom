@@ -391,7 +391,6 @@ class NetworkHandler:
             
             elif message.msg_type == MessageType.SCREEN_SHARE_START.value:
                 # Handle screen sharing start
-                self.session_manager.set_presenter(sender_id)
                 logger.info(f"Client {sender_id} started screen sharing")
                 
                 # Broadcast start message to other clients
@@ -399,19 +398,14 @@ class NetworkHandler:
             
             elif message.msg_type == MessageType.SCREEN_SHARE_STOP.value:
                 # Handle screen sharing stop
-                self.session_manager.clear_presenter()
                 logger.info(f"Client {sender_id} stopped screen sharing")
                 
                 # Broadcast stop message to other clients
                 self._broadcast_tcp_message(message, exclude_client=sender_id)
             
             elif message.msg_type == MessageType.SCREEN_SHARE.value:
-                # Handle screen frame data
-                if self.session_manager.get_active_presenter() == sender_id:
-                    # Only relay frames from the active presenter
-                    self._broadcast_tcp_message(message, exclude_client=sender_id)
-                else:
-                    logger.warning(f"Received screen frame from non-presenter client {sender_id}")
+                # Handle screen frame data - relay to all other clients
+                self._broadcast_tcp_message(message, exclude_client=sender_id)
             
             elif message.msg_type == MessageType.FILE_METADATA.value:
                 # Handle file metadata for upload

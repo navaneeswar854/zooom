@@ -642,7 +642,6 @@ class ScreenShareFrame(ModuleFrame):
         super().__init__(parent, "Screen Share")
         
         # Screen sharing state
-        self.is_presenter = False
         self.is_sharing = False
         self.current_presenter_name = None
         
@@ -650,20 +649,11 @@ class ScreenShareFrame(ModuleFrame):
         self.controls_frame = ttk.Frame(self)
         self.controls_frame.pack(fill='x', padx=5, pady=5)
         
-        # Request presenter button
-        self.presenter_button = ttk.Button(
-            self.controls_frame, 
-            text="Request Presenter", 
-            command=self._request_presenter
-        )
-        self.presenter_button.pack(side='left', padx=2)
-        
-        # Start/stop sharing button
+        # Direct screen share button
         self.share_button = ttk.Button(
             self.controls_frame, 
-            text="Start Sharing", 
-            command=self._toggle_screen_share,
-            state='disabled'
+            text="Start Screen Share", 
+            command=self._toggle_screen_share
         )
         self.share_button.pack(side='left', padx=2)
         
@@ -691,59 +681,27 @@ class ScreenShareFrame(ModuleFrame):
         self.screen_canvas.pack_forget()  # Initially hidden
         
         # Callbacks
-        self.presenter_request_callback: Optional[Callable[[], None]] = None
-        self.screen_share_start_callback: Optional[Callable[[], None]] = None
-        self.screen_share_stop_callback: Optional[Callable[[], None]] = None
+        self.screen_share_callback: Optional[Callable[[bool], None]] = None
     
-    def set_presenter_request_callback(self, callback: Callable[[], None]):
-        """Set callback for presenter role requests."""
-        self.presenter_request_callback = callback
-    
-    def set_screen_share_callbacks(self, start_callback: Callable[[], None], 
-                                 stop_callback: Callable[[], None]):
-        """Set callbacks for screen sharing start/stop events."""
-        self.screen_share_start_callback = start_callback
-        self.screen_share_stop_callback = stop_callback
-    
-    def _request_presenter(self):
-        """Request presenter role."""
-        if self.presenter_request_callback:
-            self.presenter_request_callback()
+    def set_screen_share_callback(self, callback: Callable[[bool], None]):
+        """Set callback for screen sharing toggle events."""
+        self.screen_share_callback = callback
     
     def _toggle_screen_share(self):
         """Toggle screen sharing on/off."""
-        if not self.is_presenter:
-            messagebox.showwarning("Screen Share", "You must be the presenter to share your screen")
-            return
-        
-        if self.is_sharing:
-            # Stop sharing
-            if self.screen_share_stop_callback:
-                self.screen_share_stop_callback()
-        else:
-            # Start sharing
-            if self.screen_share_start_callback:
-                self.screen_share_start_callback()
+        if self.screen_share_callback:
+            self.screen_share_callback(not self.is_sharing)
     
-    def set_presenter_status(self, is_presenter: bool, presenter_name: str = None):
-        """Update presenter status."""
-        self.is_presenter = is_presenter
+    def update_presenter(self, presenter_name: str = None):
+        """Update presenter display (for showing who is currently presenting)."""
+        self.current_presenter_name = presenter_name
         
-        if is_presenter:
-            self.presenter_label.config(text="You are the presenter")
-            self.share_button.config(state='normal')
-            self.presenter_button.config(text="Release Presenter", state='normal')
-        else:
+        # Update display based on sharing status
+        if not self.is_sharing:
             if presenter_name:
-                self.presenter_label.config(text=f"Presenter: {presenter_name}")
+                self.screen_label.config(text=f"Waiting for {presenter_name} to share")
             else:
-                self.presenter_label.config(text="No presenter")
-            self.share_button.config(state='disabled')
-            self.presenter_button.config(text="Request Presenter", state='normal')
-            
-            # Stop sharing if we were sharing
-            if self.is_sharing:
-                self.set_sharing_status(False)
+                self.screen_label.config(text="No screen sharing active")
     
     def set_sharing_status(self, is_sharing: bool):
         """Update screen sharing status."""
@@ -752,24 +710,20 @@ class ScreenShareFrame(ModuleFrame):
         self._update_status_indicator()
         
         if is_sharing:
-            self.share_button.config(text="Stop Sharing")
-            self.sharing_status.config(text="Sharing active", foreground='green')
+            self.share_button.config(text="Stop Screen Share")
+            self.sharing_status.config(text="You are sharing", foreground='green')
             self.screen_label.pack_forget()
             self.screen_canvas.pack(fill='both', expand=True)
         else:
-            self.share_button.config(text="Start Sharing")
-            self.sharing_status.config(text="", foreground='black')
+            self.share_button.config(text="Start Screen Share")
+            self.sharing_status.config(text="Ready to share", foreground='black')
             self.screen_canvas.pack_forget()
             self.screen_label.pack(expand=True)
             
             if self.current_presenter_name:
-                self.screen_label.config(text=f"Waiting for {self.current_presenter_name} to share")
+                self.screen_label.config(text=f"{self.current_presenter_name} is sharing")
             else:
                 self.screen_label.config(text="No screen sharing active")
-    
-    def update_presenter(self, presenter_name: Optional[str]):
-        """Update the current presenter information."""
-        self.current_presenter_name = presenter_name
         
         if presenter_name:
             if not self.is_presenter:
@@ -1313,14 +1267,13 @@ class GUIManager:
             
             if self.screen_share_frame:
                 # Use a unified screen share callback
-                def screen_share_wrapper():
+                def screen_share_wrapper(enabled):
                     try:
-                        screen_share_callback(not self.screen_share_frame.is_sharing)
+                        screen_share_callback(enabled)
                     except Exception as e:
                         self.handle_platform_specific_error(e, "Screen Sharing")
                 
-                self.screen_share_frame.set_presenter_request_callback(screen_share_wrapper)
-                self.screen_share_frame.set_screen_share_callbacks(screen_share_wrapper, screen_share_wrapper)
+                self.screen_share_frame.set_screen_share_callback(screen_share_wrapper)
             
             if self.file_transfer_frame:
                 # Wrap file callbacks with error handling
