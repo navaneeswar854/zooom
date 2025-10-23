@@ -514,22 +514,27 @@ class ConnectionManager:
             # Calculate file hash for integrity
             file_metadata.calculate_hash(file_path)
             
-            # Send file metadata first
+            # Send file metadata first with thread safety
             metadata_message = TCPMessage(
                 msg_type=MessageType.FILE_METADATA.value,
                 sender_id=self.client_id,
                 data=file_metadata.to_dict()
             )
             
-            if not self._send_tcp_message(metadata_message):
-                return False, "Failed to send file metadata"
+            with self._lock:
+                if not self._send_tcp_message(metadata_message):
+                    return False, "Failed to send file metadata"
             
-            # Send file data in chunks
-            chunk_size = 8192  # 8KB chunks
+            # Send file data in chunks with improved connection stability
+            chunk_size = 4096  # Smaller 4KB chunks for better stability
             total_chunks = (filesize + chunk_size - 1) // chunk_size
             
             with open(file_path, 'rb') as f:
                 for chunk_num in range(total_chunks):
+                    # Check connection before each chunk
+                    if not self._is_connected():
+                        return False, f"Connection lost during upload at chunk {chunk_num + 1}/{total_chunks}"
+                    
                     chunk_data = f.read(chunk_size)
                     if not chunk_data:
                         break
@@ -547,12 +552,24 @@ class ConnectionManager:
                         }
                     )
                     
-                    if not self._send_tcp_message(chunk_message):
-                        return False, f"Failed to send chunk {chunk_num + 1}/{total_chunks}"
+                    # Retry mechanism for failed chunks with thread safety
+                    max_retries = 3
+                    for retry in range(max_retries):
+                        # Use lock to prevent conflicts with heartbeat
+                        with self._lock:
+                            chunk_success = self._send_tcp_message(chunk_message)
+                        
+                        if chunk_success:
+                            break
+                        elif retry < max_retries - 1:
+                            logger.warning(f"Retrying chunk {chunk_num + 1}/{total_chunks} (attempt {retry + 2})")
+                            time.sleep(0.1)  # Brief pause before retry
+                        else:
+                            return False, f"Failed to send chunk {chunk_num + 1}/{total_chunks} after {max_retries} attempts"
                     
-                    # Optional: Add small delay to prevent overwhelming the server
-                    if chunk_num % 10 == 0:  # Every 10 chunks
-                        time.sleep(0.01)  # 10ms delay
+                    # Add delay to prevent overwhelming and allow heartbeats
+                    if chunk_num % 5 == 0:  # Every 5 chunks
+                        time.sleep(0.02)  # 20ms delay for connection stability
             
             logger.info(f"Successfully uploaded file: {filename} ({filesize} bytes)")
             return True, f"File '{filename}' uploaded successfully"
@@ -797,7 +814,7 @@ class ConnectionManager:
         """Send periodic heartbeat messages to maintain connection."""
         heartbeat_interval = 5  # Send heartbeat every 5 seconds
         missed_heartbeats = 0
-        max_missed_heartbeats = 3
+        max_missed_heartbeats = 5  # Increased tolerance for file operations
         
         while self.running:
             try:
@@ -805,7 +822,12 @@ class ConnectionManager:
                 
                 if self._is_connected():
                     heartbeat = MessageFactory.create_heartbeat_message(self.client_id)
-                    if self._send_tcp_message(heartbeat):
+                    
+                    # Use a lock to prevent conflicts with file operations
+                    with self._lock:
+                        heartbeat_success = self._send_tcp_message(heartbeat)
+                    
+                    if heartbeat_success:
                         self.last_heartbeat = time.time()
                         missed_heartbeats = 0  # Reset counter on successful heartbeat
                     else:
