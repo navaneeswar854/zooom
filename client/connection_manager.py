@@ -594,11 +594,13 @@ class ConnectionManager:
             return False
         
         try:
-            # Create downloads directory if not specified
+            # Create downloaded_files directory if not specified
             if save_path is None:
-                downloads_dir = "downloads"
+                # Use absolute path to ensure it's in project root
+                downloads_dir = os.path.abspath("downloaded_files")
                 if not os.path.exists(downloads_dir):
                     os.makedirs(downloads_dir, exist_ok=True)
+                    logger.info(f"Created downloads directory: {downloads_dir}")
                 save_path = downloads_dir
             
             # Validate save path
@@ -1125,13 +1127,21 @@ class ConnectionManager:
             
             if file_id not in self._active_downloads:
                 # Create download directory if needed
-                download_dir = "downloads"
-                if not os.path.exists(download_dir):
-                    os.makedirs(download_dir, exist_ok=True)
+                download_dir = os.path.abspath("downloaded_files")
+                try:
+                    if not os.path.exists(download_dir):
+                        os.makedirs(download_dir, exist_ok=True)
+                        logger.info(f"Created download directory: {download_dir}")
+                    else:
+                        logger.info(f"Using existing download directory: {download_dir}")
+                except Exception as e:
+                    logger.error(f"Failed to create download directory: {e}")
+                    return
                 
                 # Generate safe filename to prevent path traversal
                 safe_filename = os.path.basename(filename)
                 download_path = os.path.join(download_dir, safe_filename)
+                logger.info(f"Download path: {download_path}")
                 
                 # Handle filename conflicts
                 counter = 1
@@ -1143,8 +1153,9 @@ class ConnectionManager:
                 
                 try:
                     file_handle = open(download_path, 'wb')
+                    logger.info(f"Created download file: {download_path}")
                 except Exception as e:
-                    logger.error(f"Failed to create download file: {e}")
+                    logger.error(f"Failed to create download file '{download_path}': {e}")
                     return
                 
                 self._active_downloads[file_id] = {
@@ -1197,11 +1208,17 @@ class ConnectionManager:
                     download_info['file_handle'].close()
                     download_path = download_info['download_path']
                     
-                    # Verify file size if provided
-                    if filesize > 0:
+                    # Verify file exists and has correct size
+                    if os.path.exists(download_path):
                         actual_size = os.path.getsize(download_path)
-                        if actual_size != filesize:
+                        logger.info(f"Downloaded file exists: {download_path} ({actual_size} bytes)")
+                        
+                        if filesize > 0 and actual_size != filesize:
                             logger.warning(f"File size mismatch: expected {filesize}, got {actual_size}")
+                    else:
+                        logger.error(f"Downloaded file does not exist: {download_path}")
+                        self._cleanup_failed_download(file_id)
+                        return
                     
                     # Calculate download statistics
                     elapsed_time = time.time() - download_info['start_time']
@@ -1216,6 +1233,8 @@ class ConnectionManager:
                     # Notify completion callback
                     if 'file_download_complete' in self.message_callbacks:
                         self.message_callbacks['file_download_complete'](filename, download_path)
+                    else:
+                        logger.warning("No file_download_complete callback registered")
                         
                 except Exception as e:
                     logger.error(f"Error completing download: {e}")
