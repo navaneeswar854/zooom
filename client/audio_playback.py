@@ -22,9 +22,9 @@ class AudioPlayback:
     # Audio configuration constants (must match capture settings)
     SAMPLE_RATE = 16000  # 16kHz sample rate
     CHANNELS = 1  # Mono audio
-    CHUNK_SIZE = 1024  # Number of frames per buffer
+    CHUNK_SIZE = 320  # Smaller chunks for lower latency (20ms at 16kHz)
     FORMAT = pyaudio.paInt16  # 16-bit audio format
-    BUFFER_SIZE = 10  # Number of audio packets to buffer
+    BUFFER_SIZE = 5  # Smaller buffer for lower latency
     
     def __init__(self):
         """Initialize audio playback system."""
@@ -206,7 +206,7 @@ class AudioPlayback:
                     self.stream.write(silence)
                     
                     # Small delay to prevent busy waiting
-                    time.sleep(0.01)
+                    time.sleep(0.005)  # 5ms for better responsiveness
                 
             except Exception as e:
                 if self.is_playing:  # Only log if we're still supposed to be playing

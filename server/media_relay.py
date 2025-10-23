@@ -630,8 +630,8 @@ class MediaRelay:
             return
         
         try:
-            # Add audio to mixer
-            self.audio_mixer.add_audio_stream(audio_packet.sender_id, audio_packet)
+            # Broadcast audio directly to other clients (excluding sender to prevent echo)
+            self._broadcast_audio_packet(audio_packet)
             
             self.stats['audio_packets_processed'] += 1
             
@@ -690,6 +690,41 @@ class MediaRelay:
             
         except Exception as e:
             logger.error(f"Error processing screen frame: {e}")
+    
+    def _broadcast_audio_packet(self, audio_packet: UDPPacket):
+        """
+        Broadcast audio packet to all clients except sender to prevent echo.
+        
+        Args:
+            audio_packet: UDP packet containing audio data
+        """
+        try:
+            # Get all clients with UDP addresses
+            clients_with_udp = self.session_manager.get_clients_with_udp()
+            
+            logger.debug(f"Broadcasting audio from {audio_packet.sender_id} to {len(clients_with_udp)} clients")
+            
+            if not clients_with_udp:
+                return
+            
+            # Serialize packet once for efficiency
+            packet_data = audio_packet.serialize()
+            
+            # Broadcast to all clients except sender (to prevent echo)
+            broadcast_count = 0
+            for client in clients_with_udp:
+                if client.client_id != audio_packet.sender_id:
+                    try:
+                        self.udp_server.send_data(packet_data, client.udp_address)
+                        broadcast_count += 1
+                        self.stats['broadcast_packets_sent'] += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to send audio to client {client.client_id}: {e}")
+            
+            logger.debug(f"Audio broadcasted to {broadcast_count} clients (excluding sender)")
+            
+        except Exception as e:
+            logger.error(f"Error broadcasting audio packet: {e}")
     
     def _broadcast_mixed_audio(self, mixed_audio_packet: UDPPacket):
         """

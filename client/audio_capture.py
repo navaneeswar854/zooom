@@ -29,7 +29,7 @@ class AudioCapture:
     # Audio configuration constants
     SAMPLE_RATE = 16000  # 16kHz sample rate for good quality with low bandwidth
     CHANNELS = 1  # Mono audio
-    CHUNK_SIZE = 1024  # Number of frames per buffer
+    CHUNK_SIZE = 320  # Smaller chunks for lower latency (20ms at 16kHz)
     FORMAT = pyaudio.paInt16  # 16-bit audio format
     
     def __init__(self, client_id: str):
