@@ -861,6 +861,15 @@ class FileTransferFrame(ModuleFrame):
         self.progress_bar = ttk.Progressbar(self, mode='determinate')
         # Progress bar will be packed only when needed
         
+        # Cancel button for downloads
+        self.cancel_button = ttk.Button(
+            self, 
+            text="Cancel Download", 
+            command=self._cancel_download,
+            state='disabled'
+        )
+        # Cancel button will be packed only when needed
+        
         # File data
         self.shared_files: Dict[str, Dict[str, Any]] = {}
         
@@ -977,8 +986,9 @@ class FileTransferFrame(ModuleFrame):
         self.progress_bar['value'] = progress * 100
         self.progress_bar.pack(fill='x', pady=(2, 0))
         
-        # Enable cancel button during download
+        # Show and enable cancel button during download
         if progress < 1.0 and transfer_type == "Downloading":
+            self.cancel_button.pack(fill='x', pady=(2, 0))
             self.cancel_button.config(state='normal')
         else:
             self.cancel_button.config(state='disabled')
@@ -998,6 +1008,7 @@ class FileTransferFrame(ModuleFrame):
         """Hide file transfer progress."""
         self.progress_label.config(text="")
         self.progress_bar.pack_forget()
+        self.cancel_button.pack_forget()
         # Reset progress bar style and disable cancel button
         self.progress_bar.configure(style="TProgressbar")
         self.cancel_button.config(state='disabled')
