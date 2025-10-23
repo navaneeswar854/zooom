@@ -438,12 +438,18 @@ class NetworkHandler:
                     elif is_complete:
                         logger.info(f"File upload completed: {file_id}")
                         
-                        # Broadcast file availability to all clients
-                        pending_broadcasts = self.session_manager.get_pending_broadcasts()
-                        logger.info(f"Found {len(pending_broadcasts)} pending broadcasts")
-                        for broadcast_message in pending_broadcasts:
-                            logger.info(f"Broadcasting file availability: {broadcast_message.msg_type}")
-                            self._broadcast_tcp_message(broadcast_message)
+                        # Broadcast file availability to all clients with error handling
+                        try:
+                            pending_broadcasts = self.session_manager.get_pending_broadcasts()
+                            logger.info(f"Found {len(pending_broadcasts)} pending broadcasts")
+                            
+                            for broadcast_message in pending_broadcasts:
+                                logger.info(f"Broadcasting file availability: {broadcast_message.msg_type}")
+                                self._broadcast_tcp_message(broadcast_message)
+                                
+                        except Exception as broadcast_error:
+                            logger.error(f"Error during file availability broadcast: {broadcast_error}")
+                            # Don't let broadcast errors affect the upload completion
                 
                 except Exception as e:
                     logger.error(f"Error processing file chunk: {e}")
@@ -630,7 +636,7 @@ class NetworkHandler:
     
     def _send_tcp_message(self, client_socket: socket.socket, message: TCPMessage) -> bool:
         """
-        Send a TCP message to a specific client.
+        Send a TCP message to a specific client with improved error handling.
         
         Args:
             client_socket: The client's TCP socket
@@ -640,13 +646,27 @@ class NetworkHandler:
             bool: True if sent successfully
         """
         try:
+            # Check if socket is still valid
+            if not client_socket or client_socket.fileno() == -1:
+                logger.debug("Socket is closed or invalid")
+                return False
+            
             data = message.serialize()
             data_length = len(data)
             length_bytes = data_length.to_bytes(4, byteorder='big')
             
+            # Send with timeout to prevent blocking
+            client_socket.settimeout(5.0)  # 5 second timeout
             client_socket.sendall(length_bytes + data)
+            client_socket.settimeout(None)  # Reset to blocking
             return True
         
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError) as e:
+            logger.debug(f"Client connection lost during send: {e}")
+            return False
+        except socket.timeout:
+            logger.warning("TCP message send timeout")
+            return False
         except Exception as e:
             logger.error(f"Error sending TCP message: {e}")
             return False
@@ -668,27 +688,38 @@ class NetworkHandler:
                 continue
             
             try:
+                # Validate client before sending
+                if not client.tcp_socket or client.tcp_socket.fileno() == -1:
+                    failed_deliveries.append(client.client_id)
+                    logger.debug(f"Skipping invalid socket for client {client.client_id}")
+                    continue
+                
                 # Send message via TCP for reliable delivery
                 if self._send_tcp_message(client.tcp_socket, message):
                     successful_deliveries += 1
                 else:
                     failed_deliveries.append(client.client_id)
-                    logger.warning(f"Failed to deliver message to client {client.client_id}")
+                    logger.debug(f"Failed to deliver message to client {client.client_id}")
             except Exception as e:
                 failed_deliveries.append(client.client_id)
-                logger.error(f"Error broadcasting to client {client.client_id}: {e}")
+                logger.debug(f"Exception broadcasting to client {client.client_id}: {e}")
+                # Continue with other clients even if one fails
         
-        # Log broadcast results for chat messages
+        # Log broadcast results
+        total_targets = len(clients) - (1 if exclude_client else 0)
+        
         if message.msg_type == MessageType.CHAT.value:
-            total_targets = len(clients) - (1 if exclude_client else 0)
             logger.info(f"Chat message broadcast completed: {successful_deliveries}/{total_targets} successful deliveries")
-            
-            if failed_deliveries:
-                logger.warning(f"Failed to deliver chat message to clients: {failed_deliveries}")
+        elif message.msg_type == 'file_available':
+            logger.info(f"File availability broadcast completed: {successful_deliveries}/{total_targets} successful deliveries")
         
-        # Handle failed deliveries for chat messages
-        if failed_deliveries and message.msg_type == MessageType.CHAT.value:
-            self._handle_chat_delivery_failures(failed_deliveries, message)
+        if failed_deliveries:
+            if message.msg_type == MessageType.CHAT.value:
+                logger.warning(f"Failed to deliver chat message to clients: {failed_deliveries}")
+                self._handle_chat_delivery_failures(failed_deliveries, message)
+            elif message.msg_type == 'file_available':
+                logger.warning(f"Failed to deliver file availability to clients: {failed_deliveries}")
+                self._handle_file_delivery_failures(failed_deliveries, message)
     
     def _handle_chat_delivery_failures(self, failed_client_ids: List[str], message: TCPMessage):
         """
@@ -715,6 +746,28 @@ class NetworkHandler:
         
         except Exception as e:
             logger.error(f"Error handling chat delivery failures: {e}")
+    
+    def _handle_file_delivery_failures(self, failed_client_ids: List[str], message: TCPMessage):
+        """
+        Handle failed file availability message deliveries.
+        
+        Args:
+            failed_client_ids: List of client IDs that failed to receive the message
+            message: The file availability message that failed to deliver
+        """
+        try:
+            for client_id in failed_client_ids:
+                client = self.session_manager.get_client(client_id)
+                if client:
+                    logger.warning(f"File availability delivery failed for {client.username} ({client_id})")
+                    # Don't disconnect clients for file delivery failures
+                    # They can still participate in other activities
+                else:
+                    logger.info(f"Client {client_id} already disconnected, removing from session")
+                    self.session_manager.remove_client(client_id)
+        
+        except Exception as e:
+            logger.error(f"Error handling file delivery failures: {e}")
     
     def _validate_chat_message(self, message: TCPMessage, sender_id: str) -> bool:
         """
