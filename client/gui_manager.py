@@ -91,6 +91,10 @@ class VideoFrame(ModuleFrame):
         # Callbacks
         self.video_callback: Optional[Callable[[bool], None]] = None
         self.participant_videos = {}  # Track participant video states
+        
+        # Frame rate limiting to prevent stacking
+        self.last_frame_time = {}  # Track last update time per client
+        self.frame_rate_limit = 1.0 / 30  # Limit to 30 FPS for GUI updates
     
     def set_video_callback(self, callback: Callable[[bool], None]):
         """Set callback for video toggle events."""
@@ -181,8 +185,9 @@ class VideoFrame(ModuleFrame):
     def update_local_video(self, frame):
         """Update local video display with captured frame (thread-safe)."""
         try:
-            # Direct update if we're already on the main thread
-            self._update_local_video_safe(frame)
+            # Use after_idle to ensure GUI updates happen on main thread
+            if hasattr(self, 'video_display') and self.video_display.winfo_exists():
+                self.video_display.after_idle(self._update_local_video_safe, frame)
         except Exception as e:
             logger.error(f"Error in local video update: {e}")
             # Fallback: just log the error and continue
@@ -193,6 +198,14 @@ class VideoFrame(ModuleFrame):
             import cv2
             from PIL import Image, ImageTk
             import io
+            import time
+            
+            # Frame rate limiting for local video
+            current_time = time.time()
+            if 'local' in self.last_frame_time:
+                if current_time - self.last_frame_time['local'] < self.frame_rate_limit:
+                    return  # Skip this frame to prevent stacking
+            self.last_frame_time['local'] = current_time
             
             # Convert OpenCV frame (BGR) to RGB
             if frame is not None and frame.size > 0:
@@ -277,8 +290,9 @@ class VideoFrame(ModuleFrame):
     def update_remote_video(self, client_id: str, frame):
         """Update remote video display with incoming frame (thread-safe)."""
         try:
-            # Direct update with error handling
-            self._update_remote_video_safe(client_id, frame)
+            # Use after_idle to ensure GUI updates happen on main thread and prevent stacking
+            if hasattr(self, 'video_display') and self.video_display.winfo_exists():
+                self.video_display.after_idle(self._update_remote_video_safe, client_id, frame)
         except Exception as e:
             logger.error(f"Error in remote video update for {client_id}: {e}")
             # Fallback: just log the error and continue
@@ -288,6 +302,14 @@ class VideoFrame(ModuleFrame):
         try:
             import cv2
             from PIL import Image, ImageTk
+            import time
+            
+            # Frame rate limiting for remote video
+            current_time = time.time()
+            if client_id in self.last_frame_time:
+                if current_time - self.last_frame_time[client_id] < self.frame_rate_limit:
+                    return  # Skip this frame to prevent stacking
+            self.last_frame_time[client_id] = current_time
             
             # Convert OpenCV frame (BGR) to RGB
             if frame is not None and frame.size > 0:

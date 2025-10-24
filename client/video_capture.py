@@ -169,10 +169,29 @@ class VideoCapture:
                 if not self.camera.isOpened():
                     return False
             
-            # Configure camera settings for low latency
+            # Configure camera settings for low latency with fallbacks
+            # Try to set desired resolution, but camera may not support it
             self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
             self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
             self.camera.set(cv2.CAP_PROP_FPS, self.fps)
+            
+            # If camera doesn't support our resolution, try common fallbacks
+            actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            
+            if actual_width != self.width or actual_height != self.height:
+                logger.info(f"Camera doesn't support {self.width}x{self.height}, trying fallbacks...")
+                
+                # Try common small resolutions
+                fallback_resolutions = [(320, 240), (160, 120), (176, 144)]
+                for fw, fh in fallback_resolutions:
+                    self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, fw)
+                    self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, fh)
+                    test_w = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    test_h = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    if test_w == fw and test_h == fh:
+                        logger.info(f"Using fallback resolution: {fw}x{fh}")
+                        break
             
             # Ultra-low latency optimizations for 60 FPS
             self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize buffer for low latency
