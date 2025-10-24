@@ -939,7 +939,8 @@ class ScreenCapture:
         """
         return {
             'platform': self.platform,
-            'capture_available': self.capture_available,
+            'available': self.capture_available,  # Fix: use 'available' key that screen manager expects
+            'capture_available': self.capture_available,  # Keep for backward compatibility
             'capabilities': getattr(self, 'capability_details', {}),
             'permissions': getattr(self, 'permission_details', {}),
             'dependencies': {

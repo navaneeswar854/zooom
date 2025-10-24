@@ -264,51 +264,88 @@ class ScreenManager:
             # Check if screen capture is available before attempting to start
             try:
                 capability_info = self.screen_capture.get_capability_info()
-                if not capability_info.get('available', False):
-                    error_msg = capability_info.get('error_message', 'Screen capture not available')
+                logger.info(f"Screen capture capability info: {capability_info}")
+                
+                available = capability_info.get('available', False)
+                logger.info(f"Screen capture available: {available}")
+                
+                if not available:
+                    # Get detailed error information
+                    capabilities = capability_info.get('capabilities', {})
+                    permissions = capability_info.get('permissions', {})
+                    dependencies = capability_info.get('dependencies', {})
+                    
+                    logger.error(f"Screen capture capabilities: {capabilities}")
+                    logger.error(f"Screen capture permissions: {permissions}")
+                    logger.error(f"Screen capture dependencies: {dependencies}")
+                    
+                    # Try to get a more specific error message
+                    error_msg = capability_info.get('error_message')
+                    if not error_msg:
+                        if not capabilities.get('available', True):
+                            error_msg = capabilities.get('message', 'Platform capabilities not available')
+                        elif not permissions.get('available', True):
+                            error_msg = permissions.get('message', 'Screen capture permissions denied')
+                        else:
+                            error_msg = 'Screen capture not available'
+                    
                     logger.error(f"Screen capture not available: {error_msg}")
                     
                     if self.gui_manager:
                         self.gui_manager.show_error("Screen Capture Error", error_msg)
                         # Provide setup instructions if available
-                        instructions = self.screen_capture.get_setup_instructions()
-                        if instructions:
-                            instruction_text = "\n".join(instructions)
-                            self.gui_manager.show_error("Setup Instructions", instruction_text)
+                        try:
+                            instructions = self.screen_capture.get_setup_instructions()
+                            if instructions:
+                                instruction_text = "\n".join(instructions)
+                                self.gui_manager.show_error("Setup Instructions", instruction_text)
+                        except Exception as inst_e:
+                            logger.error(f"Error getting setup instructions: {inst_e}")
                     
                     # Notify server that we failed to start
-                    self._notify_server_capture_failed("Screen capture not available")
+                    self._notify_server_capture_failed(error_msg)
                     return
             except Exception as e:
                 logger.error(f"Error checking screen capture capability: {e}")
+                import traceback
+                logger.error(f"Capability check traceback: {traceback.format_exc()}")
                 # Continue with attempt, but log the error
             
             # Now actually start screen capture
-            success, message = self.screen_capture.start_capture()
-            
-            if success:
-                with self._lock:
-                    self.is_sharing = True
+            logger.info("Attempting to start screen capture...")
+            try:
+                success, message = self.screen_capture.start_capture()
+                logger.info(f"Screen capture start result: success={success}, message='{message}'")
                 
-                # Update GUI
-                try:
+                if success:
+                    with self._lock:
+                        self.is_sharing = True
+                    
+                    # Update GUI
+                    try:
+                        if self.gui_manager:
+                            self.gui_manager.set_screen_sharing_status(True)
+                            logger.info("GUI updated for screen sharing start")
+                    except Exception as e:
+                        logger.error(f"Error updating GUI for screen sharing start: {e}")
+                        # Continue even if GUI update fails
+                    
+                    logger.info(f"Screen capture started successfully: {message}")
+                else:
+                    logger.error(f"Failed to start screen capture after server confirmation: {message}")
+                    
+                    # Show detailed error to user
                     if self.gui_manager:
-                        self.gui_manager.set_screen_sharing_status(True)
-                        logger.info("GUI updated for screen sharing start")
-                except Exception as e:
-                    logger.error(f"Error updating GUI for screen sharing start: {e}")
-                    # Continue even if GUI update fails
-                
-                logger.info(f"Screen capture started successfully: {message}")
-            else:
-                logger.error(f"Failed to start screen capture after server confirmation: {message}")
-                
-                # Show detailed error to user
+                        self.gui_manager.show_error("Screen Capture Error", message)
+                    
+                    # Notify server that we failed to start
+                    self._notify_server_capture_failed(message)
+            except Exception as start_e:
+                error_msg = f"Exception during screen capture start: {start_e}"
+                logger.error(error_msg)
                 if self.gui_manager:
-                    self.gui_manager.show_error("Screen Capture Error", message)
-                
-                # Notify server that we failed to start
-                self._notify_server_capture_failed(message)
+                    self.gui_manager.show_error("Screen Capture Error", error_msg)
+                self._notify_server_capture_failed(error_msg)
         
         except Exception as e:
             error_msg = f"Unexpected error handling screen share confirmation: {e}"
