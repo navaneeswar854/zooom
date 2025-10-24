@@ -736,30 +736,30 @@ class ScreenShareFrame(ModuleFrame):
                 return
             
             if button_text == "Request Presenter Role":
-            # Add loading states during presenter role requests
-            self._safe_button_update(self.share_button, state='disabled', text="Requesting...")
-            self._safe_label_update(self.sharing_status, text="Requesting presenter role...", foreground='orange')
-            
-            # Request presenter role
-            if self.screen_share_callback:
-                logger.info("Requesting presenter role")
-                self.screen_share_callback(True)  # This will trigger presenter role request
+                # Add loading states during presenter role requests
+                self._safe_button_update(self.share_button, state='disabled', text="Requesting...")
+                self._safe_label_update(self.sharing_status, text="Requesting presenter role...", foreground='orange')
                 
-                # Set timeout to reset button if no response
-                self.after(10000, self._reset_presenter_request_timeout)
-        elif button_text.startswith("Start"):
-            # Start screen sharing (already presenter)
-            self._safe_button_update(self.share_button, state='disabled', text="Starting...")
-            self._safe_label_update(self.sharing_status, text="Starting screen share...", foreground='orange')
-            
-            if self.screen_share_callback:
-                logger.info("Starting screen sharing")
-                self.screen_share_callback(True)
-        elif button_text.startswith("Stop"):
-            # Stop screen sharing
-            if self.screen_share_callback:
-                logger.info("Stopping screen sharing")
-                self.screen_share_callback(False)
+                # Request presenter role
+                if self.screen_share_callback:
+                    logger.info("Requesting presenter role")
+                    self.screen_share_callback(True)  # This will trigger presenter role request
+                    
+                    # Set timeout to reset button if no response
+                    self.after(10000, self._reset_presenter_request_timeout)
+            elif button_text.startswith("Start"):
+                # Start screen sharing (already presenter)
+                self._safe_button_update(self.share_button, state='disabled', text="Starting...")
+                self._safe_label_update(self.sharing_status, text="Starting screen share...", foreground='orange')
+                
+                if self.screen_share_callback:
+                    logger.info("Starting screen sharing")
+                    self.screen_share_callback(True)
+            elif button_text.startswith("Stop"):
+                # Stop screen sharing
+                if self.screen_share_callback:
+                    logger.info("Stopping screen sharing")
+                    self.screen_share_callback(False)
             else:
                 logger.warning(f"Unknown button state: {button_text}")
         
