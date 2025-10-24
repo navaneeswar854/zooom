@@ -223,8 +223,8 @@ class VideoRenderer:
                 # Clean up inactive streams
                 self._cleanup_inactive_streams()
                 
-                # Sleep to maintain 60 FPS rendering
-                time.sleep(1.0 / 60)  # 60 FPS for ultra-smooth playback
+                # Sleep to maintain 30 FPS rendering
+                time.sleep(1.0 / 30)  # 30 FPS for smooth playback
                 
             except Exception as e:
                 if self.is_rendering:

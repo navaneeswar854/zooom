@@ -34,10 +34,10 @@ class VideoCapture:
     - Video frame transmission via UDP packets
     """
     
-    # Video configuration constants - optimized for 60 FPS low latency
+    # Video configuration constants - optimized for 30 FPS with low latency
     DEFAULT_WIDTH = 240  # Reduced resolution for smaller packets
     DEFAULT_HEIGHT = 180  # Reduced resolution for smaller packets
-    DEFAULT_FPS = 60  # 60 FPS for ultra-smooth video
+    DEFAULT_FPS = 30  # 30 FPS for smooth video (most cameras support this)
     COMPRESSION_QUALITY = 40  # Lower quality for smaller packet size
     
     def __init__(self, client_id: str, connection_manager=None):
@@ -197,9 +197,15 @@ class VideoCapture:
             self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize buffer for low latency
             self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))  # Use MJPEG for better performance
             
-            # Additional 60 FPS optimizations
-            self.camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # Disable auto exposure for consistent timing
-            self.camera.set(cv2.CAP_PROP_AUTOFOCUS, 0)  # Disable autofocus for consistent timing
+            # Additional 30 FPS optimizations
+            try:
+                self.camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # Disable auto exposure for consistent timing
+            except:
+                pass  # Some cameras don't support this
+            try:
+                self.camera.set(cv2.CAP_PROP_AUTOFOCUS, 0)  # Disable autofocus for consistent timing
+            except:
+                pass  # Some cameras don't support this
             
             # Verify actual settings
             actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -265,11 +271,9 @@ class VideoCapture:
             try:
                 current_time = time.time()
                 
-                # For 60 FPS, capture as fast as possible with zero delay
-                if self.fps >= 60 and current_time - last_frame_time < frame_interval:
-                    continue  # No sleep for 60+ FPS to minimize latency
-                elif self.fps >= 30 and current_time - last_frame_time < frame_interval:
-                    continue  # No sleep for 30+ FPS either
+                # For 30 FPS, capture with minimal delay
+                if self.fps >= 30 and current_time - last_frame_time < frame_interval:
+                    continue  # No sleep for 30+ FPS to minimize latency
                 elif current_time - last_frame_time < frame_interval:
                     time.sleep(0.001)  # Tiny sleep only for very low FPS
                     continue

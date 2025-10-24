@@ -95,6 +95,7 @@ class VideoFrame(ModuleFrame):
         # Frame rate limiting to prevent stacking
         self.last_frame_time = {}  # Track last update time per client
         self.frame_rate_limit = 1.0 / 30  # Limit to 30 FPS for GUI updates
+        self.pending_updates = {}  # Track pending updates to prevent queuing
     
     def set_video_callback(self, callback: Callable[[bool], None]):
         """Set callback for video toggle events."""
@@ -185,20 +186,31 @@ class VideoFrame(ModuleFrame):
     def update_local_video(self, frame):
         """Update local video display with captured frame (thread-safe)."""
         try:
+            # Prevent multiple pending updates for the same client
+            client_key = 'local'
+            if client_key in self.pending_updates:
+                return  # Skip if update already pending
+            
+            # Mark update as pending
+            self.pending_updates[client_key] = True
+            
             # Use after_idle to ensure GUI updates happen on main thread
             if hasattr(self, 'video_display') and self.video_display.winfo_exists():
-                self.video_display.after_idle(self._update_local_video_safe, frame)
+                self.video_display.after_idle(self._update_local_video_safe, frame, client_key)
         except Exception as e:
             logger.error(f"Error in local video update: {e}")
             # Fallback: just log the error and continue
     
-    def _update_local_video_safe(self, frame):
+    def _update_local_video_safe(self, frame, client_key):
         """Thread-safe implementation of local video update."""
         try:
             import cv2
             from PIL import Image, ImageTk
-            import io
             import time
+            
+            # Clear pending update flag
+            if client_key in self.pending_updates:
+                del self.pending_updates[client_key]
             
             # Frame rate limiting for local video
             current_time = time.time()
@@ -230,34 +242,22 @@ class VideoFrame(ModuleFrame):
                         logger.warning("Local video slot frame no longer exists")
                         return
                     
-                    # Remove text label and add video display
-                    if hasattr(slot, 'video_label') and self._widget_exists(slot['video_label']):
-                        slot['video_label'].destroy()
-                    
                     # Hide the placeholder label first
                     if 'label' in slot and self._widget_exists(slot['label']):
                         slot['label'].pack_forget()
                     
-                    if not hasattr(slot, 'video_canvas') or not self._widget_exists(slot.get('video_canvas')):
-                        slot['video_canvas'] = tk.Canvas(
-                            slot['frame'], 
-                            width=display_size[0], 
-                            height=display_size[1],
-                            bg='black'
-                        )
-                        slot['video_canvas'].pack(fill='both', expand=True)
+                    # Destroy any existing video widget to prevent stacking
+                    if hasattr(slot, 'video_widget') and self._widget_exists(slot.get('video_widget')):
+                        slot['video_widget'].destroy()
                     
-                    # Clear canvas and display new frame
-                    if self._widget_exists(slot['video_canvas']):
-                        slot['video_canvas'].delete("all")
-                        slot['video_canvas'].create_image(
-                            display_size[0]//2, display_size[1]//2, 
-                            anchor='center', 
-                            image=photo
-                        )
-                        
-                        # Keep reference to prevent garbage collection
-                        slot['video_canvas'].image = photo
+                    # Create new video label widget
+                    slot['video_widget'] = tk.Label(
+                        slot['frame'],
+                        image=photo,
+                        bg='black'
+                    )
+                    slot['video_widget'].pack(fill='both', expand=True)
+                    slot['video_widget'].image = photo  # Keep reference
                     
                     # Update slot info
                     slot['participant_id'] = 'local'
@@ -283,13 +283,20 @@ class VideoFrame(ModuleFrame):
                 if 0 in self.video_slots:
                     slot = self.video_slots[0]
                     if 'label' in slot and self._widget_exists(slot['label']):
-                        slot['label'].config(text="Local Video\nError", fg='red')
+                        slot['label'].config(text="Local Video
+Error", fg='red')
             except:
                 pass  # Ignore errors when showing error message
-    
     def update_remote_video(self, client_id: str, frame):
         """Update remote video display with incoming frame (thread-safe)."""
         try:
+            # Prevent multiple pending updates for the same client
+            if client_id in self.pending_updates:
+                return  # Skip if update already pending
+            
+            # Mark update as pending
+            self.pending_updates[client_id] = True
+            
             # Use after_idle to ensure GUI updates happen on main thread and prevent stacking
             if hasattr(self, 'video_display') and self.video_display.winfo_exists():
                 self.video_display.after_idle(self._update_remote_video_safe, client_id, frame)
@@ -303,6 +310,10 @@ class VideoFrame(ModuleFrame):
             import cv2
             from PIL import Image, ImageTk
             import time
+            
+            # Clear pending update flag
+            if client_id in self.pending_updates:
+                del self.pending_updates[client_id]
             
             # Frame rate limiting for remote video
             current_time = time.time()
@@ -356,26 +367,18 @@ class VideoFrame(ModuleFrame):
                     if 'label' in slot and self._widget_exists(slot['label']):
                         slot['label'].pack_forget()
                     
-                    if not hasattr(slot, 'video_canvas') or not self._widget_exists(slot.get('video_canvas')):
-                        slot['video_canvas'] = tk.Canvas(
-                            slot['frame'], 
-                            width=display_size[0], 
-                            height=display_size[1],
-                            bg='black'
-                        )
-                        slot['video_canvas'].pack(fill='both', expand=True)
+                    # Destroy any existing video widget to prevent stacking
+                    if hasattr(slot, 'video_widget') and self._widget_exists(slot.get('video_widget')):
+                        slot['video_widget'].destroy()
                     
-                    # Clear canvas and display new frame
-                    if self._widget_exists(slot['video_canvas']):
-                        slot['video_canvas'].delete("all")
-                        slot['video_canvas'].create_image(
-                            display_size[0]//2, display_size[1]//2, 
-                            anchor='center', 
-                            image=photo
-                        )
-                        
-                        # Keep reference to prevent garbage collection
-                        slot['video_canvas'].image = photo
+                    # Create new video label widget
+                    slot['video_widget'] = tk.Label(
+                        slot['frame'],
+                        image=photo,
+                        bg='black'
+                    )
+                    slot['video_widget'].pack(fill='both', expand=True)
+                    slot['video_widget'].image = photo  # Keep reference
                     
                     # Update slot info - ensure exclusive assignment
                     slot['participant_id'] = client_id
@@ -399,7 +402,6 @@ class VideoFrame(ModuleFrame):
             
         except Exception as e:
             logger.error(f"Error updating remote video from {client_id}: {e}")
-    
     def _widget_exists(self, widget):
         """Check if a tkinter widget still exists and is valid."""
         try:
