@@ -34,11 +34,11 @@ class VideoCapture:
     - Video frame transmission via UDP packets
     """
     
-    # Video configuration constants
-    DEFAULT_WIDTH = 320  # Increased resolution for better quality
-    DEFAULT_HEIGHT = 240  # Increased resolution for better quality
-    DEFAULT_FPS = 30  # High FPS for smooth video
-    COMPRESSION_QUALITY = 85  # High quality for better video
+    # Video configuration constants - optimized for 60 FPS low latency
+    DEFAULT_WIDTH = 240  # Reduced resolution for smaller packets
+    DEFAULT_HEIGHT = 180  # Reduced resolution for smaller packets
+    DEFAULT_FPS = 60  # 60 FPS for ultra-smooth video
+    COMPRESSION_QUALITY = 40  # Lower quality for smaller packet size
     
     def __init__(self, client_id: str, connection_manager=None):
         """
@@ -174,9 +174,13 @@ class VideoCapture:
             self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
             self.camera.set(cv2.CAP_PROP_FPS, self.fps)
             
-            # Low latency optimizations
+            # Ultra-low latency optimizations for 60 FPS
             self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize buffer for low latency
             self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))  # Use MJPEG for better performance
+            
+            # Additional 60 FPS optimizations
+            self.camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # Disable auto exposure for consistent timing
+            self.camera.set(cv2.CAP_PROP_AUTOFOCUS, 0)  # Disable autofocus for consistent timing
             
             # Verify actual settings
             actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -242,11 +246,13 @@ class VideoCapture:
             try:
                 current_time = time.time()
                 
-                # For high FPS, capture as fast as possible with minimal delay
-                if self.fps >= 25 and current_time - last_frame_time < frame_interval:
-                    continue  # No sleep for high FPS to minimize latency
+                # For 60 FPS, capture as fast as possible with zero delay
+                if self.fps >= 60 and current_time - last_frame_time < frame_interval:
+                    continue  # No sleep for 60+ FPS to minimize latency
+                elif self.fps >= 30 and current_time - last_frame_time < frame_interval:
+                    continue  # No sleep for 30+ FPS either
                 elif current_time - last_frame_time < frame_interval:
-                    time.sleep(0.001)  # Small sleep only for lower FPS
+                    time.sleep(0.001)  # Tiny sleep only for very low FPS
                     continue
                 
                 # Capture frame
@@ -360,8 +366,8 @@ class VideoCapture:
             if not self.connection_manager:
                 return
             
-            # Check packet size limit (use very small packets for LAN stability)
-            max_packet_size = 8192  # 8KB maximum
+            # Check packet size limit (increased for better quality on LAN)
+            max_packet_size = 32768  # 32KB maximum for LAN networks
             if len(compressed_frame) > max_packet_size:
                 logger.warning(f"Video frame too large ({len(compressed_frame)} bytes), skipping")
                 return
