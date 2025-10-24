@@ -168,7 +168,16 @@ class VideoFrame(ModuleFrame):
         self.create_dynamic_video_grid(active_video_clients)
     
     def update_local_video(self, frame):
-        """Update local video display with captured frame."""
+        """Update local video display with captured frame (thread-safe)."""
+        try:
+            # Direct update if we're already on the main thread
+            self._update_local_video_safe(frame)
+        except Exception as e:
+            logger.error(f"Error in local video update: {e}")
+            # Fallback: just log the error and continue
+    
+    def _update_local_video_safe(self, frame):
+        """Thread-safe implementation of local video update."""
         try:
             import cv2
             from PIL import Image, ImageTk
@@ -192,11 +201,16 @@ class VideoFrame(ModuleFrame):
                 if 0 in self.video_slots:
                     slot = self.video_slots[0]
                     
+                    # Check if widgets still exist before accessing them
+                    if not self._widget_exists(slot['frame']):
+                        logger.warning("Local video slot frame no longer exists")
+                        return
+                    
                     # Remove text label and add video display
-                    if hasattr(slot, 'video_label'):
+                    if hasattr(slot, 'video_label') and self._widget_exists(slot['video_label']):
                         slot['video_label'].destroy()
                     
-                    if not hasattr(slot, 'video_canvas'):
+                    if not hasattr(slot, 'video_canvas') or not self._widget_exists(slot.get('video_canvas')):
                         slot['video_canvas'] = tk.Canvas(
                             slot['frame'], 
                             width=display_size[0], 
@@ -206,22 +220,23 @@ class VideoFrame(ModuleFrame):
                         slot['video_canvas'].pack(expand=True)
                     
                     # Clear canvas and display new frame
-                    slot['video_canvas'].delete("all")
-                    slot['video_canvas'].create_image(
-                        display_size[0]//2, display_size[1]//2, 
-                        anchor='center', 
-                        image=photo
-                    )
-                    
-                    # Keep reference to prevent garbage collection
-                    slot['video_canvas'].image = photo
+                    if self._widget_exists(slot['video_canvas']):
+                        slot['video_canvas'].delete("all")
+                        slot['video_canvas'].create_image(
+                            display_size[0]//2, display_size[1]//2, 
+                            anchor='center', 
+                            image=photo
+                        )
+                        
+                        # Keep reference to prevent garbage collection
+                        slot['video_canvas'].image = photo
                     
                     # Update slot info
                     slot['participant_id'] = 'local'
                     slot['active'] = True
                     
                     # Add "You" label
-                    if not hasattr(slot, 'name_label'):
+                    if not hasattr(slot, 'name_label') or not self._widget_exists(slot.get('name_label')):
                         slot['name_label'] = tk.Label(
                             slot['frame'], 
                             text="You (Local)", 
@@ -236,13 +251,25 @@ class VideoFrame(ModuleFrame):
         except Exception as e:
             logger.error(f"Error updating local video: {e}")
             # Show error in video slot
-            if 0 in self.video_slots:
-                slot = self.video_slots[0]
-                if 'label' in slot:
-                    slot['label'].config(text="Local Video\nError", fg='red')
+            try:
+                if 0 in self.video_slots:
+                    slot = self.video_slots[0]
+                    if 'label' in slot and self._widget_exists(slot['label']):
+                        slot['label'].config(text="Local Video\nError", fg='red')
+            except:
+                pass  # Ignore errors when showing error message
     
     def update_remote_video(self, client_id: str, frame):
-        """Update remote video display with incoming frame."""
+        """Update remote video display with incoming frame (thread-safe)."""
+        try:
+            # Direct update with error handling
+            self._update_remote_video_safe(client_id, frame)
+        except Exception as e:
+            logger.error(f"Error in remote video update for {client_id}: {e}")
+            # Fallback: just log the error and continue
+    
+    def _update_remote_video_safe(self, client_id: str, frame):
+        """Thread-safe implementation of remote video update."""
         try:
             import cv2
             from PIL import Image, ImageTk
@@ -267,11 +294,16 @@ class VideoFrame(ModuleFrame):
                 if slot_id is not None and slot_id in self.video_slots:
                     slot = self.video_slots[slot_id]
                     
+                    # Check if widgets still exist before accessing them
+                    if not self._widget_exists(slot['frame']):
+                        logger.warning(f"Remote video slot frame for {client_id} no longer exists")
+                        return
+                    
                     # Remove text label and add video display
-                    if 'label' in slot and slot['label'].winfo_exists():
+                    if 'label' in slot and self._widget_exists(slot['label']):
                         slot['label'].pack_forget()
                     
-                    if not hasattr(slot, 'video_canvas'):
+                    if not hasattr(slot, 'video_canvas') or not self._widget_exists(slot.get('video_canvas')):
                         slot['video_canvas'] = tk.Canvas(
                             slot['frame'], 
                             width=display_size[0], 
@@ -281,22 +313,23 @@ class VideoFrame(ModuleFrame):
                         slot['video_canvas'].pack(expand=True)
                     
                     # Clear canvas and display new frame
-                    slot['video_canvas'].delete("all")
-                    slot['video_canvas'].create_image(
-                        display_size[0]//2, display_size[1]//2, 
-                        anchor='center', 
-                        image=photo
-                    )
-                    
-                    # Keep reference to prevent garbage collection
-                    slot['video_canvas'].image = photo
+                    if self._widget_exists(slot['video_canvas']):
+                        slot['video_canvas'].delete("all")
+                        slot['video_canvas'].create_image(
+                            display_size[0]//2, display_size[1]//2, 
+                            anchor='center', 
+                            image=photo
+                        )
+                        
+                        # Keep reference to prevent garbage collection
+                        slot['video_canvas'].image = photo
                     
                     # Update slot info
                     slot['participant_id'] = client_id
                     slot['active'] = True
                     
                     # Add participant name label
-                    if not hasattr(slot, 'name_label'):
+                    if not hasattr(slot, 'name_label') or not self._widget_exists(slot.get('name_label')):
                         slot['name_label'] = tk.Label(
                             slot['frame'], 
                             text=f"Client {client_id[:8]}", 
@@ -311,6 +344,35 @@ class VideoFrame(ModuleFrame):
         except Exception as e:
             logger.error(f"Error updating remote video from {client_id}: {e}")
     
+    def _widget_exists(self, widget):
+        """Check if a tkinter widget still exists and is valid."""
+        try:
+            if widget is None:
+                return False
+            # Try to access a widget property - this will raise TclError if widget is destroyed
+            return widget.winfo_exists()
+        except (tk.TclError, AttributeError):
+            return False
+        except Exception:
+            return False
+    
+    def _get_or_assign_video_slot(self, client_id: str) -> Optional[int]:
+        """Get or assign a video slot for a client."""
+        # Check if client already has a slot
+        for slot_id, slot in self.video_slots.items():
+            if slot.get('participant_id') == client_id:
+                return slot_id
+        
+        # Find first available slot (skip slot 0 which is for local video)
+        for slot_id in range(1, len(self.video_slots)):
+            slot = self.video_slots[slot_id]
+            if not slot.get('active', False) or slot.get('participant_id') is None:
+                return slot_id
+        
+        # No available slots
+        logger.warning(f"No available video slots for client {client_id}")
+        return None
+
     def create_dynamic_video_grid(self, active_video_clients: list):
         """Create dynamic grid layout for multiple video feeds."""
         try:
