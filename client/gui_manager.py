@@ -7,8 +7,10 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, scrolledtext
 import threading
 import logging
+import time
 from typing import Dict, List, Optional, Callable, Any
 from datetime import datetime
+from client.stable_video_system import stability_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -184,27 +186,26 @@ class VideoFrame(ModuleFrame):
                 slot_index += 1
     
     def update_local_video(self, frame):
-        """Update local video display with extreme optimization for zero flickering."""
+        """Update local video display with maximum stability - no flickering."""
         try:
-            # Extreme optimization: immediate display without any delays
-            import time
+            # Use stable video system to prevent interface shaking
+            client_id = 'local'
             
-            client_key = 'local'
-            current_time = time.perf_counter()
+            # Register video slot if not already registered
+            if 0 in self.video_slots:
+                stability_manager.register_video_slot(client_id, self.video_slots[0])
             
-            # Ultra-minimal frame rate limiting - only prevent excessive updates
-            if client_key in self.last_frame_time:
-                time_diff = current_time - self.last_frame_time[client_key]
-                if time_diff < 0.008:  # 8ms minimum (125 FPS max) for ultra-smooth
-                    return
+            # Update with stable system
+            success = stability_manager.update_video_frame(client_id, frame)
             
-            self.last_frame_time[client_key] = current_time
-            
-            # Immediate update with extreme optimization
-            self._update_local_video_extreme(frame)
+            if not success:
+                # Fallback to safe update
+                self._update_local_video_safe_stable(frame)
             
         except Exception as e:
-            logger.debug(f"Local video update error: {e}")  # Minimal logging for speed
+            logger.error(f"Local video update error: {e}")
+            # Error recovery - show error message
+            self._show_video_error('local', "Local video error")
     
     def _update_local_video_extreme(self, frame):
         """Extreme optimization local video update - zero flickering."""
@@ -396,26 +397,27 @@ class VideoFrame(ModuleFrame):
             except:
                 pass  # Ignore errors when showing error message
     def update_remote_video(self, client_id: str, frame):
-        """Update remote video display with extreme optimization for zero flickering."""
+        """Update remote video display with maximum stability - no flickering."""
         try:
-            # Extreme optimization: immediate display without any delays
-            import time
+            # Use stable video system to prevent interface shaking
             
-            current_time = time.perf_counter()
-            
-            # Ultra-minimal frame rate limiting - only prevent excessive updates
-            if client_id in self.last_frame_time:
-                time_diff = current_time - self.last_frame_time[client_id]
-                if time_diff < 0.008:  # 8ms minimum (125 FPS max) for ultra-smooth
-                    return
-            
-            self.last_frame_time[client_id] = current_time
-            
-            # Immediate update with extreme optimization
-            self._update_remote_video_extreme(client_id, frame)
+            # Find or assign video slot
+            slot_id = self._get_video_slot_stable(client_id)
+            if slot_id is not None and slot_id in self.video_slots:
+                # Register video slot if not already registered
+                stability_manager.register_video_slot(client_id, self.video_slots[slot_id])
+                
+                # Update with stable system
+                success = stability_manager.update_video_frame(client_id, frame)
+                
+                if not success:
+                    # Fallback to safe update
+                    self._update_remote_video_safe_stable(client_id, frame, slot_id)
             
         except Exception as e:
-            logger.debug(f"Remote video update error for {client_id}: {e}")  # Minimal logging for speed
+            logger.error(f"Remote video update error for {client_id}: {e}")
+            # Error recovery - show error message
+            self._show_video_error(client_id, f"Remote video error: {client_id}")
     
     def _update_remote_video_safe(self, client_id: str, frame):
         """Thread-safe implementation of remote video update."""
@@ -549,32 +551,160 @@ class VideoFrame(ModuleFrame):
         logger.warning(f"No available video slots for client {client_id} - all {len(self.video_slots)-1} remote slots occupied")
         return None
     
+    def _update_local_video_safe_stable(self, frame):
+        """Safe stable update for local video."""
+        try:
+            if 0 in self.video_slots:
+                slot = self.video_slots[0]
+                if self._widget_exists(slot['frame']):
+                    # Create or update video display safely
+                    self._create_stable_video_display(slot['frame'], frame, 'local')
+        except Exception as e:
+            logger.error(f"Safe local video update error: {e}")
+    
+    def _update_remote_video_safe_stable(self, client_id: str, frame, slot_id: int):
+        """Safe stable update for remote video."""
+        try:
+            if slot_id in self.video_slots:
+                slot = self.video_slots[slot_id]
+                if self._widget_exists(slot['frame']):
+                    # Create or update video display safely
+                    self._create_stable_video_display(slot['frame'], frame, client_id)
+                    
+                    # Update slot assignment
+                    slot['participant_id'] = client_id
+                    slot['active'] = True
+        except Exception as e:
+            logger.error(f"Safe remote video update error for {client_id}: {e}")
+    
+    def _create_stable_video_display(self, parent_frame, frame, client_id: str):
+        """Create stable video display without destroying widgets unnecessarily."""
+        try:
+            import cv2
+            from PIL import Image, ImageTk
+            
+            # Convert frame for display
+            if frame is not None and frame.size > 0:
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_image = Image.fromarray(rgb_frame)
+                display_size = (200, 150)
+                pil_image = pil_image.resize(display_size, Image.LANCZOS)
+                photo = ImageTk.PhotoImage(pil_image)
+                
+                # Find existing video widget or create new one
+                video_widgets = [child for child in parent_frame.winfo_children() 
+                               if isinstance(child, tk.Label) and hasattr(child, 'image')]
+                
+                if video_widgets:
+                    # Update existing widget
+                    video_widget = video_widgets[0]
+                    video_widget.configure(image=photo)
+                    video_widget.image = photo
+                else:
+                    # Create new widget only if necessary
+                    # Clear only placeholder labels, not video widgets
+                    for child in parent_frame.winfo_children():
+                        if isinstance(child, tk.Label) and not hasattr(child, 'image'):
+                            if 'Video Slot' in child.cget('text') or 'Enable video' in child.cget('text'):
+                                child.destroy()
+                    
+                    # Create video widget
+                    video_widget = tk.Label(parent_frame, image=photo, bg='black')
+                    video_widget.pack(fill='both', expand=True)
+                    video_widget.image = photo
+                    
+                    # Create name label
+                    name_text = "You (Local)" if client_id == 'local' else f"Client {client_id[:8]}"
+                    name_label = tk.Label(
+                        parent_frame,
+                        text=name_text,
+                        fg='lightgreen' if client_id == 'local' else 'lightblue',
+                        bg='black',
+                        font=('Arial', 8)
+                    )
+                    name_label.pack(side='bottom')
+                    
+        except Exception as e:
+            logger.error(f"Error creating stable video display for {client_id}: {e}")
+    
+    def _get_video_slot_stable(self, client_id: str) -> Optional[int]:
+        """Get video slot with stability checks."""
+        try:
+            # Check existing assignment
+            for slot_id, slot in self.video_slots.items():
+                if slot.get('participant_id') == client_id:
+                    return slot_id
+            
+            # Find available slot (skip slot 0 for local)
+            for slot_id in range(1, len(self.video_slots)):
+                slot = self.video_slots[slot_id]
+                if not slot.get('active', False):
+                    return slot_id
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error getting video slot for {client_id}: {e}")
+            return None
+    
+    def _show_video_error(self, client_id: str, error_message: str):
+        """Show video error message safely."""
+        try:
+            # Find appropriate slot
+            slot_id = 0 if client_id == 'local' else self._get_video_slot_stable(client_id)
+            
+            if slot_id is not None and slot_id in self.video_slots:
+                slot = self.video_slots[slot_id]
+                if self._widget_exists(slot['frame']):
+                    # Clear frame and show error
+                    for child in slot['frame'].winfo_children():
+                        child.destroy()
+                    
+                    error_label = tk.Label(
+                        slot['frame'],
+                        text=f"{error_message}\nRecovering...",
+                        fg='red',
+                        bg='black',
+                        font=('Arial', 10)
+                    )
+                    error_label.pack(expand=True)
+                    
+        except Exception as e:
+            logger.error(f"Error showing video error for {client_id}: {e}")
+    
     def clear_video_slot(self, client_id: str):
-        """Clear video slot for a disconnected client."""
-        for slot_id, slot in self.video_slots.items():
-            if slot.get('participant_id') == client_id:
-                logger.info(f"Clearing video slot {slot_id} for disconnected client {client_id}")
-                
-                # COMPLETELY CLEAR THE SLOT - destroy ALL child widgets
-                for child in slot['frame'].winfo_children():
-                    child.destroy()
-                
-                # Recreate placeholder label
-                slot_text = "Your Video\n(Enable video)" if slot_id == 0 else f"Video Slot {slot_id+1}\nNo participant"
-                placeholder_label = tk.Label(
-                    slot['frame'], 
-                    text=slot_text, 
-                    fg='lightgreen' if slot_id == 0 else 'white', 
-                    bg='black',
-                    font=('Arial', 10)
-                )
-                placeholder_label.pack(expand=True)
-                slot['label'] = placeholder_label
-                
-                # Clear slot assignment
-                slot['participant_id'] = 'local' if slot_id == 0 else None
-                slot['active'] = False
-                break
+        """Clear video slot for a disconnected client safely."""
+        try:
+            # Remove from stability manager
+            stability_manager.remove_video_slot(client_id)
+            
+            for slot_id, slot in self.video_slots.items():
+                if slot.get('participant_id') == client_id:
+                    logger.info(f"Clearing video slot {slot_id} for disconnected client {client_id}")
+                    
+                    # Clear slot safely
+                    if self._widget_exists(slot['frame']):
+                        for child in slot['frame'].winfo_children():
+                            child.destroy()
+                        
+                        # Recreate placeholder label
+                        slot_text = "Your Video\n(Enable video)" if slot_id == 0 else f"Video Slot {slot_id+1}\nNo participant"
+                        placeholder_label = tk.Label(
+                            slot['frame'], 
+                            text=slot_text, 
+                            fg='lightgreen' if slot_id == 0 else 'white', 
+                            bg='black',
+                            font=('Arial', 10)
+                        )
+                        placeholder_label.pack(expand=True)
+                        slot['label'] = placeholder_label
+                    
+                    # Clear slot assignment
+                    slot['participant_id'] = 'local' if slot_id == 0 else None
+                    slot['active'] = False
+                    break
+                    
+        except Exception as e:
+            logger.error(f"Error clearing video slot for {client_id}: {e}")
 
     def create_dynamic_video_grid(self, active_video_clients: list):
         """Create dynamic grid layout for multiple video feeds."""

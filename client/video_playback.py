@@ -13,6 +13,7 @@ from collections import deque
 from common.messages import UDPPacket
 from client.video_optimization import video_optimizer
 from client.extreme_video_optimizer import extreme_video_optimizer
+from client.stable_video_system import stability_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -124,7 +125,7 @@ class VideoRenderer:
     
     def process_video_packet(self, video_packet: UDPPacket):
         """
-        Process incoming video packet with extreme optimization for zero latency.
+        Process incoming video packet with stability optimization.
         
         Args:
             video_packet: UDP packet containing compressed video data
@@ -135,38 +136,118 @@ class VideoRenderer:
         try:
             client_id = video_packet.sender_id
             
-            # Initialize stream if new with extreme optimization
+            # Initialize stream if new with stability
             with self._lock:
                 if client_id not in self.video_streams:
                     self.video_streams[client_id] = {
-                        'last_packet_time': time.perf_counter(),
+                        'last_packet_time': time.time(),
                         'packets_received': 0,
                         'frames_decoded': 0,
-                        'active': True
+                        'active': True,
+                        'consecutive_errors': 0
                     }
                     
-                    # Register for extreme optimization
-                    extreme_video_optimizer.register_client_display(
-                        client_id, 
-                        lambda frame: self._extreme_display_callback(client_id, frame)
-                    )
-                    
-                    logger.info(f"Added extreme optimized video stream for client {client_id}")
+                    logger.info(f"Added stable video stream for client {client_id}")
                     
                     # Notify stream status callback
                     if self.stream_status_callback:
                         self.stream_status_callback(client_id, True)
                 
-                # Update minimal statistics
-                self.video_streams[client_id]['packets_received'] += 1
-                self.video_streams[client_id]['last_packet_time'] = time.perf_counter()
+                # Update statistics
+                stream_info = self.video_streams[client_id]
+                stream_info['packets_received'] += 1
+                stream_info['last_packet_time'] = time.time()
                 self.stats['total_frames_received'] += 1
             
-            # Process with extreme optimization - immediate display
-            extreme_video_optimizer.process_video_packet_extreme(client_id, video_packet.data)
+            # Process with stability - decode and display
+            self._process_packet_stable(client_id, video_packet.data)
             
         except Exception as e:
+            logger.error(f"Video packet processing error for {client_id}: {e}")
             self.stats['decode_errors'] += 1
+            self._handle_processing_error(client_id)
+    
+    def _process_packet_stable(self, client_id: str, packet_data: bytes):
+        """Process packet with stability and error handling."""
+        try:
+            # Decompress frame with error handling
+            frame = self._decompress_frame_stable(packet_data)
+            
+            if frame is not None:
+                # Update stream statistics
+                with self._lock:
+                    if client_id in self.video_streams:
+                        self.video_streams[client_id]['frames_decoded'] += 1
+                        self.video_streams[client_id]['consecutive_errors'] = 0
+                
+                # Display frame with stability callback
+                if self.frame_update_callback:
+                    try:
+                        self.frame_update_callback(client_id, frame)
+                    except Exception as e:
+                        logger.warning(f"Frame update callback error for {client_id}: {e}")
+                        self._handle_processing_error(client_id)
+            else:
+                self._handle_processing_error(client_id)
+                
+        except Exception as e:
+            logger.error(f"Stable packet processing error for {client_id}: {e}")
+            self._handle_processing_error(client_id)
+    
+    def _decompress_frame_stable(self, compressed_data: bytes) -> Optional[np.ndarray]:
+        """Decompress frame with stability and error handling."""
+        try:
+            if not compressed_data or len(compressed_data) == 0:
+                return None
+            
+            # Convert bytes to numpy array with validation
+            nparr = np.frombuffer(compressed_data, np.uint8)
+            
+            if nparr.size == 0:
+                return None
+            
+            # Decode JPEG image with error handling
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            if frame is None or frame.size == 0:
+                logger.warning("Failed to decode video frame")
+                return None
+            
+            return frame
+            
+        except Exception as e:
+            logger.error(f"Frame decompression error: {e}")
+            return None
+    
+    def _handle_processing_error(self, client_id: str):
+        """Handle processing errors with recovery."""
+        try:
+            with self._lock:
+                if client_id in self.video_streams:
+                    stream_info = self.video_streams[client_id]
+                    stream_info['consecutive_errors'] = stream_info.get('consecutive_errors', 0) + 1
+                    
+                    # If too many errors, temporarily disable stream
+                    if stream_info['consecutive_errors'] >= 5:
+                        logger.warning(f"Too many errors for {client_id}, temporarily disabling")
+                        stream_info['active'] = False
+                        
+                        # Re-enable after delay
+                        threading.Timer(2.0, lambda: self._reset_stream_errors(client_id)).start()
+                        
+        except Exception as e:
+            logger.error(f"Error handling processing error for {client_id}: {e}")
+    
+    def _reset_stream_errors(self, client_id: str):
+        """Reset stream error count."""
+        try:
+            with self._lock:
+                if client_id in self.video_streams:
+                    self.video_streams[client_id]['consecutive_errors'] = 0
+                    self.video_streams[client_id]['active'] = True
+                    logger.info(f"Reset errors for {client_id}, stream re-enabled")
+        except Exception as e:
+            logger.error(f"Error resetting stream errors for {client_id}: {e}")
     
     def _extreme_display_callback(self, client_id: str, frame: np.ndarray):
         """Extreme optimization display callback."""

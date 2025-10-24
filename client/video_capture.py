@@ -12,6 +12,7 @@ from common.messages import UDPPacket, MessageFactory
 from common.platform_utils import PLATFORM_INFO, DeviceUtils, ErrorHandler
 from client.video_optimization import video_optimizer
 from client.extreme_video_optimizer import extreme_video_optimizer
+from client.stable_video_system import stability_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -291,37 +292,95 @@ class VideoCapture:
                 self.camera = None
     
     def _capture_loop(self):
-        """Main video capture loop with extreme optimization for zero latency."""
-        logger.info("Video capture loop started with extreme optimization")
+        """Main video capture loop with stability optimization."""
+        logger.info("Video capture loop started with stability optimization")
         
-        # Enable extreme optimization
-        extreme_video_optimizer.start_optimization()
-        extreme_video_optimizer.enable_ultra_fast_mode()
-        extreme_video_optimizer.enable_anti_flicker_mode()
+        # Enable stability system
+        stability_manager.enable_stability()
         
-        # Zero-delay capture for maximum speed
+        # Stable capture with error handling
+        frame_interval = 1.0 / 25  # 25 FPS for stability
+        last_frame_time = 0
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        
         while self.is_capturing and self.camera:
             try:
-                # Immediate capture without any timing delays
+                current_time = time.time()
+                
+                # Stable frame timing
+                if current_time - last_frame_time < frame_interval:
+                    time.sleep(0.01)  # Small delay for stability
+                    continue
+                
+                # Capture frame with error handling
                 ret, frame = self.camera.read()
                 
                 if not ret or frame is None:
+                    consecutive_errors += 1
                     self.stats['capture_errors'] += 1
-                    continue  # Skip delay, try immediately again
+                    
+                    if consecutive_errors >= max_consecutive_errors:
+                        logger.warning("Too many consecutive capture errors, pausing briefly")
+                        time.sleep(0.5)  # Recovery pause
+                        consecutive_errors = 0
+                    
+                    continue
                 
-                # Process and send frame with extreme optimization
-                self._process_frame_extreme(frame)
+                # Reset error count on success
+                consecutive_errors = 0
+                
+                # Process frame with stability
+                self._process_frame_stable(frame)
                 
                 self.stats['frames_captured'] += 1
-                self.stats['last_frame_time'] = time.perf_counter()
+                self.stats['last_frame_time'] = current_time
+                last_frame_time = current_time
                 
             except Exception as e:
                 if self.is_capturing:
-                    logger.error(f"Error in extreme capture loop: {e}")
+                    logger.error(f"Error in stable capture loop: {e}")
                     self.stats['capture_errors'] += 1
-                continue  # Continue immediately without delay
+                    consecutive_errors += 1
+                    
+                    # Recovery delay on errors
+                    time.sleep(0.1)
         
-        logger.info("Extreme video capture loop ended")
+        logger.info("Stable video capture loop ended")
+    
+    def _process_frame_stable(self, frame: np.ndarray):
+        """
+        Process captured frame with stability optimization.
+        
+        Args:
+            frame: Captured video frame from OpenCV
+        """
+        try:
+            # Stable frame processing with error handling
+            
+            # Resize frame if needed
+            if frame.shape[1] != self.width or frame.shape[0] != self.height:
+                frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_LINEAR)
+            
+            # Local display callback with error handling
+            if self.frame_callback:
+                try:
+                    self.frame_callback(frame.copy())
+                except Exception as e:
+                    logger.warning(f"Frame callback error: {e}")
+            
+            # Stable compression
+            compressed_frame = self._compress_frame_stable(frame)
+            
+            if compressed_frame is not None:
+                # Stable packet transmission
+                self._send_video_packet_stable(compressed_frame)
+            else:
+                self.stats['frames_dropped'] += 1
+            
+        except Exception as e:
+            logger.error(f"Stable frame processing error: {e}")
+            self.stats['capture_errors'] += 1
     
     def _process_frame_extreme(self, frame: np.ndarray):
         """
@@ -416,6 +475,42 @@ class VideoCapture:
             logger.error(f"Error processing frame: {e}")
             self.stats['capture_errors'] += 1
     
+    def _compress_frame_stable(self, frame: np.ndarray) -> Optional[bytes]:
+        """
+        Stable frame compression with error handling.
+        
+        Args:
+            frame: Video frame to compress
+            
+        Returns:
+            bytes: Compressed frame data or None if compression failed
+        """
+        try:
+            # Stable quality settings
+            encode_params = [
+                cv2.IMWRITE_JPEG_QUALITY, 80,  # Good quality for stability
+                cv2.IMWRITE_JPEG_OPTIMIZE, 1,  # Enable optimization
+                cv2.IMWRITE_JPEG_PROGRESSIVE, 0  # Disable progressive for stability
+            ]
+            
+            # Encode with error handling
+            success, encoded_frame = cv2.imencode('.jpg', frame, encode_params)
+            
+            if success and encoded_frame is not None:
+                compressed_data = encoded_frame.tobytes()
+                
+                # Update statistics
+                self.stats['total_bytes_sent'] += len(compressed_data)
+                
+                return compressed_data
+            else:
+                logger.warning("Frame compression failed")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Frame compression error: {e}")
+            return None
+    
     def _compress_frame_extreme(self, frame: np.ndarray) -> Optional[bytes]:
         """
         Ultra-fast frame compression for extreme performance.
@@ -499,6 +594,50 @@ class VideoCapture:
         except Exception as e:
             logger.error(f"Error compressing frame: {e}")
             return None
+    
+    def _send_video_packet_stable(self, compressed_frame: bytes):
+        """
+        Send compressed video frame with stability optimization.
+        
+        Args:
+            compressed_frame: Compressed video frame data
+        """
+        try:
+            if not self.connection_manager:
+                logger.warning("No connection manager available")
+                return
+            
+            # Reasonable packet size for stability
+            max_packet_size = 262144  # 256KB for stable transmission
+            if len(compressed_frame) > max_packet_size:
+                logger.warning(f"Frame too large ({len(compressed_frame)} bytes), skipping")
+                return
+            
+            # Create packet with error handling
+            with self._lock:
+                try:
+                    video_packet = MessageFactory.create_video_packet(
+                        sender_id=self.client_id,
+                        sequence_num=self.sequence_number,
+                        video_data=compressed_frame
+                    )
+                    self.sequence_number += 1
+                except Exception as e:
+                    logger.error(f"Error creating video packet: {e}")
+                    return
+            
+            # Send with error handling
+            try:
+                success = self.connection_manager.send_udp_packet(video_packet)
+                if success:
+                    self.stats['frames_sent'] += 1
+                else:
+                    logger.warning("Failed to send video packet")
+            except Exception as e:
+                logger.error(f"Error sending video packet: {e}")
+                
+        except Exception as e:
+            logger.error(f"Stable video packet transmission error: {e}")
     
     def _send_video_packet_extreme(self, compressed_frame: bytes):
         """
