@@ -187,8 +187,8 @@ class VideoFrame(ModuleFrame):
                 pil_image = Image.fromarray(rgb_frame)
                 
                 # Resize to fit in video slot (maintain aspect ratio)
-                display_size = (160, 120)  # Small size for grid layout
-                pil_image.thumbnail(display_size, Image.LANCZOS)
+                display_size = (200, 150)  # Larger size for better visibility
+                pil_image = pil_image.resize(display_size, Image.LANCZOS)
                 
                 # Convert to PhotoImage for tkinter
                 photo = ImageTk.PhotoImage(pil_image)
@@ -206,6 +206,10 @@ class VideoFrame(ModuleFrame):
                     if hasattr(slot, 'video_label') and self._widget_exists(slot['video_label']):
                         slot['video_label'].destroy()
                     
+                    # Hide the placeholder label first
+                    if 'label' in slot and self._widget_exists(slot['label']):
+                        slot['label'].pack_forget()
+                    
                     if not hasattr(slot, 'video_canvas') or not self._widget_exists(slot.get('video_canvas')):
                         slot['video_canvas'] = tk.Canvas(
                             slot['frame'], 
@@ -213,7 +217,7 @@ class VideoFrame(ModuleFrame):
                             height=display_size[1],
                             bg='black'
                         )
-                        slot['video_canvas'].pack(expand=True)
+                        slot['video_canvas'].pack(fill='both', expand=True)
                     
                     # Clear canvas and display new frame
                     if self._widget_exists(slot['video_canvas']):
@@ -278,8 +282,8 @@ class VideoFrame(ModuleFrame):
                 pil_image = Image.fromarray(rgb_frame)
                 
                 # Resize to fit in video slot (maintain aspect ratio)
-                display_size = (160, 120)  # Small size for grid layout
-                pil_image.thumbnail(display_size, Image.LANCZOS)
+                display_size = (200, 150)  # Larger size for better visibility
+                pil_image = pil_image.resize(display_size, Image.LANCZOS)
                 
                 # Convert to PhotoImage for tkinter
                 photo = ImageTk.PhotoImage(pil_image)
@@ -306,7 +310,7 @@ class VideoFrame(ModuleFrame):
                             height=display_size[1],
                             bg='black'
                         )
-                        slot['video_canvas'].pack(expand=True)
+                        slot['video_canvas'].pack(fill='both', expand=True)
                     
                     # Clear canvas and display new frame
                     if self._widget_exists(slot['video_canvas']):

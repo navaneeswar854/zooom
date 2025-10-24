@@ -35,10 +35,10 @@ class VideoCapture:
     """
     
     # Video configuration constants
-    DEFAULT_WIDTH = 160  # Very small for LAN transmission
-    DEFAULT_HEIGHT = 120  # Very small for LAN transmission
-    DEFAULT_FPS = 5  # Very low FPS for network stability
-    COMPRESSION_QUALITY = 15  # Very low quality for tiny packets
+    DEFAULT_WIDTH = 320  # Increased resolution for better quality
+    DEFAULT_HEIGHT = 240  # Increased resolution for better quality
+    DEFAULT_FPS = 30  # High FPS for smooth video
+    COMPRESSION_QUALITY = 85  # High quality for better video
     
     def __init__(self, client_id: str, connection_manager=None):
         """
@@ -169,10 +169,14 @@ class VideoCapture:
                 if not self.camera.isOpened():
                     return False
             
-            # Configure camera settings
+            # Configure camera settings for low latency
             self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
             self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
             self.camera.set(cv2.CAP_PROP_FPS, self.fps)
+            
+            # Low latency optimizations
+            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize buffer for low latency
+            self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))  # Use MJPEG for better performance
             
             # Verify actual settings
             actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -238,9 +242,11 @@ class VideoCapture:
             try:
                 current_time = time.time()
                 
-                # Maintain frame rate
-                if current_time - last_frame_time < frame_interval:
-                    time.sleep(0.001)  # Small sleep to prevent busy waiting
+                # For high FPS, capture as fast as possible with minimal delay
+                if self.fps >= 25 and current_time - last_frame_time < frame_interval:
+                    continue  # No sleep for high FPS to minimize latency
+                elif current_time - last_frame_time < frame_interval:
+                    time.sleep(0.001)  # Small sleep only for lower FPS
                     continue
                 
                 # Capture frame
