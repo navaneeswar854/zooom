@@ -427,7 +427,7 @@ class NetworkHandler:
                     
                     # Send confirmation back to the sender
                     confirm_message = TCPMessage(
-                        msg_type='screen_share_confirmed',
+                        msg_type=MessageType.SCREEN_SHARE_CONFIRMED.value,
                         sender_id='server',
                         data={'status': 'started'}
                     )

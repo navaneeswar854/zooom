@@ -23,6 +23,8 @@ class MessageType(Enum):
     SCREEN_SHARE = "screen_share"
     SCREEN_SHARE_START = "screen_share_start"
     SCREEN_SHARE_STOP = "screen_share_stop"
+    SCREEN_SHARE_CONFIRMED = "screen_share_confirmed"
+    SCREEN_SHARE_ERROR = "screen_share_error"
     PRESENTER_REQUEST = "presenter_request"
     PRESENTER_GRANTED = "presenter_granted"
     PRESENTER_DENIED = "presenter_denied"
@@ -40,7 +42,6 @@ class MessageType(Enum):
     UDP_ADDRESS_UPDATE = "udp_address_update"
     SERVER_SHUTDOWN = "server_shutdown"
     QUALITY_UPDATE = "quality_update"
-    SCREEN_SHARE_ERROR = "screen_share_error"
     
     # UDP Packet Types
     AUDIO = "audio"
@@ -189,6 +190,15 @@ class MessageFactory:
             msg_type=MessageType.HEARTBEAT.value,
             sender_id=sender_id,
             data={'status': 'alive'}
+        )
+    
+    @staticmethod
+    def create_tcp_message(msg_type: str, sender_id: str, data: dict) -> TCPMessage:
+        """Create a generic TCP message."""
+        return TCPMessage(
+            msg_type=msg_type,
+            sender_id=sender_id,
+            data=data
         )
     
     @staticmethod
@@ -370,6 +380,8 @@ class MessageValidator:
             MessageType.SCREEN_SHARE.value,
             MessageType.SCREEN_SHARE_START.value,
             MessageType.SCREEN_SHARE_STOP.value,
+            MessageType.SCREEN_SHARE_CONFIRMED.value,
+            MessageType.SCREEN_SHARE_ERROR.value,
             MessageType.PRESENTER_REQUEST.value,
             MessageType.PRESENTER_GRANTED.value,
             MessageType.PRESENTER_DENIED.value
@@ -389,6 +401,10 @@ class MessageValidator:
             return MessageValidator._validate_presenter_denied_message(message)
         elif message.msg_type in [MessageType.SCREEN_SHARE_START.value, MessageType.SCREEN_SHARE_STOP.value]:
             return MessageValidator._validate_screen_share_control_message(message)
+        elif message.msg_type == MessageType.SCREEN_SHARE_CONFIRMED.value:
+            return MessageValidator._validate_screen_share_confirmed_message(message)
+        elif message.msg_type == MessageType.SCREEN_SHARE_ERROR.value:
+            return MessageValidator._validate_screen_share_error_message(message)
         
         return True, "Valid screen sharing message"
     
@@ -478,6 +494,37 @@ class MessageValidator:
             return False, "Screen share control message should have empty data"
         
         return True, "Valid screen share control message"
+    
+    @staticmethod
+    def _validate_screen_share_confirmed_message(message: TCPMessage) -> tuple[bool, str]:
+        """Validate screen share confirmed message data."""
+        data = message.data
+        
+        # Check required fields
+        if 'status' not in data:
+            return False, "Screen share confirmed message missing 'status' field"
+        
+        # Validate status value
+        valid_statuses = ['started', 'stopped']
+        if data['status'] not in valid_statuses:
+            return False, f"Invalid status value: {data['status']}"
+        
+        return True, "Valid screen share confirmed message"
+    
+    @staticmethod
+    def _validate_screen_share_error_message(message: TCPMessage) -> tuple[bool, str]:
+        """Validate screen share error message data."""
+        data = message.data
+        
+        # Check required fields
+        if 'error' not in data:
+            return False, "Screen share error message missing 'error' field"
+        
+        # Validate error message
+        if not isinstance(data['error'], str) or len(data['error'].strip()) == 0:
+            return False, "Error message must be a non-empty string"
+        
+        return True, "Valid screen share error message"
 
 
 # Utility functions for common operations

@@ -146,7 +146,7 @@ class CollaborationClient:
                 MessageType.SCREEN_SHARE_ERROR.value, self._on_screen_share_error
             )
             self.connection_manager.register_message_callback(
-                'screen_share_confirmed', self._on_screen_share_confirmed
+                MessageType.SCREEN_SHARE_CONFIRMED.value, self._on_screen_share_confirmed
             )
             self.connection_manager.register_message_callback(
                 MessageType.PRESENTER_GRANTED.value, self._on_presenter_granted
