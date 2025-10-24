@@ -734,8 +734,8 @@ class ScreenShareFrame(ModuleFrame):
             except tk.TclError as e:
                 logger.error(f"Error getting button text: {e}")
                 return
-        
-        if button_text == "Request Presenter Role":
+            
+            if button_text == "Request Presenter Role":
             # Add loading states during presenter role requests
             self._safe_button_update(self.share_button, state='disabled', text="Requesting...")
             self._safe_label_update(self.sharing_status, text="Requesting presenter role...", foreground='orange')
@@ -760,8 +760,17 @@ class ScreenShareFrame(ModuleFrame):
             if self.screen_share_callback:
                 logger.info("Stopping screen sharing")
                 self.screen_share_callback(False)
-        else:
-            logger.warning(f"Unknown button state: {button_text}")
+            else:
+                logger.warning(f"Unknown button state: {button_text}")
+        
+        except Exception as e:
+            logger.error(f"Error in screen share toggle: {e}")
+            # Reset button state on error
+            try:
+                self._safe_button_update(self.share_button, state='normal', text="Request Presenter Role")
+                self._safe_label_update(self.sharing_status, text="Error - try again", foreground='red')
+            except:
+                pass
     
     def _reset_presenter_request_timeout(self):
         """Reset presenter request button after timeout."""
