@@ -14,6 +14,7 @@ from common.messages import UDPPacket
 from client.video_optimization import video_optimizer
 from client.extreme_video_optimizer import extreme_video_optimizer
 from client.stable_video_system import stability_manager
+from client.frame_sequencer import frame_sequencing_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -125,7 +126,7 @@ class VideoRenderer:
     
     def process_video_packet(self, video_packet: UDPPacket):
         """
-        Process incoming video packet with stability optimization.
+        Process incoming video packet with frame sequencing for chronological order.
         
         Args:
             video_packet: UDP packet containing compressed video data
@@ -136,7 +137,7 @@ class VideoRenderer:
         try:
             client_id = video_packet.sender_id
             
-            # Initialize stream if new with stability
+            # Initialize stream if new with sequencing
             with self._lock:
                 if client_id not in self.video_streams:
                     self.video_streams[client_id] = {
@@ -147,7 +148,13 @@ class VideoRenderer:
                         'consecutive_errors': 0
                     }
                     
-                    logger.info(f"Added stable video stream for client {client_id}")
+                    # Register with frame sequencing manager
+                    frame_sequencing_manager.register_client(
+                        client_id, 
+                        lambda frame_data: self._display_sequenced_frame(client_id, frame_data)
+                    )
+                    
+                    logger.info(f"Added sequenced video stream for client {client_id}")
                     
                     # Notify stream status callback
                     if self.stream_status_callback:
@@ -159,13 +166,58 @@ class VideoRenderer:
                 stream_info['last_packet_time'] = time.time()
                 self.stats['total_frames_received'] += 1
             
-            # Process with stability - decode and display
-            self._process_packet_stable(client_id, video_packet.data)
+            # Process with frame sequencing for chronological order
+            self._process_packet_sequenced(client_id, video_packet)
             
         except Exception as e:
-            logger.error(f"Video packet processing error for {client_id}: {e}")
+            logger.error(f"Sequenced video packet processing error for {client_id}: {e}")
             self.stats['decode_errors'] += 1
             self._handle_processing_error(client_id)
+    
+    def _process_packet_sequenced(self, client_id: str, video_packet: UDPPacket):
+        """Process packet with frame sequencing for chronological order."""
+        try:
+            # Extract timing information from packet
+            sequence_number = video_packet.sequence_num
+            capture_timestamp = getattr(video_packet, 'capture_timestamp', time.perf_counter())
+            network_timestamp = getattr(video_packet, 'network_timestamp', time.perf_counter())
+            
+            # Decompress frame with error handling
+            frame = self._decompress_frame_stable(video_packet.data)
+            
+            if frame is not None:
+                # Add frame to sequencer for chronological ordering
+                success = frame_sequencing_manager.add_frame(
+                    client_id=client_id,
+                    sequence_number=sequence_number,
+                    capture_timestamp=capture_timestamp,
+                    network_timestamp=network_timestamp,
+                    frame_data=frame
+                )
+                
+                if success:
+                    # Update stream statistics
+                    with self._lock:
+                        if client_id in self.video_streams:
+                            self.video_streams[client_id]['frames_decoded'] += 1
+                            self.video_streams[client_id]['consecutive_errors'] = 0
+                else:
+                    logger.debug(f"Frame {sequence_number} rejected by sequencer for {client_id}")
+            else:
+                self._handle_processing_error(client_id)
+                
+        except Exception as e:
+            logger.error(f"Sequenced packet processing error for {client_id}: {e}")
+            self._handle_processing_error(client_id)
+    
+    def _display_sequenced_frame(self, client_id: str, frame_data: np.ndarray):
+        """Display frame that has been sequenced for chronological order."""
+        try:
+            # Display frame through callback system
+            if self.frame_update_callback:
+                self.frame_update_callback(client_id, frame_data)
+        except Exception as e:
+            logger.error(f"Sequenced frame display error for {client_id}: {e}")
     
     def _process_packet_stable(self, client_id: str, packet_data: bytes):
         """Process packet with stability and error handling."""
@@ -485,11 +537,12 @@ class VideoRenderer:
         """
         with self._lock:
             if client_id in self.video_streams:
-                logger.info(f"Removing extreme optimized video stream for client {client_id}")
+                logger.info(f"Removing sequenced video stream for client {client_id}")
                 
-                # Unregister from both optimizers
+                # Unregister from all systems
                 video_optimizer.unregister_client(client_id)
                 extreme_video_optimizer.unregister_client(client_id)
+                frame_sequencing_manager.unregister_client(client_id)
                 
                 # Notify stream status callback
                 if self.stream_status_callback:

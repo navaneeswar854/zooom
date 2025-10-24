@@ -65,9 +65,13 @@ class VideoCapture:
         self.fps = self.DEFAULT_FPS
         self.compression_quality = self.COMPRESSION_QUALITY
         
-        # Frame sequence tracking
+        # Frame sequence tracking with high-precision timestamps
         self.sequence_number = 0
         self._lock = threading.RLock()
+        
+        # Timestamp synchronization
+        self.capture_start_timestamp = None
+        self.frame_timestamps = deque(maxlen=100)  # Track frame timing
         
         # Statistics
         self.stats = {
@@ -227,9 +231,10 @@ class VideoCapture:
             
             logger.info(f"Camera initialized: {actual_width}x{actual_height} @ {actual_fps}fps")
             
-            # Start capture thread
+            # Start capture thread with precise timing
             self.is_capturing = True
             self.stats['capture_start_time'] = time.time()
+            self.capture_start_timestamp = time.perf_counter()  # High precision timestamp
             self.sequence_number = 0
             
             self.capture_thread = threading.Thread(
@@ -350,12 +355,19 @@ class VideoCapture:
     
     def _process_frame_stable(self, frame: np.ndarray):
         """
-        Process captured frame with stability optimization.
+        Process captured frame with stability optimization and precise timestamping.
         
         Args:
             frame: Captured video frame from OpenCV
         """
         try:
+            # Capture precise timestamp for frame sequencing
+            capture_timestamp = time.perf_counter()
+            relative_timestamp = capture_timestamp - self.capture_start_timestamp if self.capture_start_timestamp else 0
+            
+            # Store timestamp for sequencing
+            self.frame_timestamps.append(capture_timestamp)
+            
             # Stable frame processing with error handling
             
             # Resize frame if needed
@@ -373,8 +385,8 @@ class VideoCapture:
             compressed_frame = self._compress_frame_stable(frame)
             
             if compressed_frame is not None:
-                # Stable packet transmission
-                self._send_video_packet_stable(compressed_frame)
+                # Stable packet transmission with timestamps
+                self._send_video_packet_stable_sequenced(compressed_frame, capture_timestamp, relative_timestamp)
             else:
                 self.stats['frames_dropped'] += 1
             
@@ -594,6 +606,62 @@ class VideoCapture:
         except Exception as e:
             logger.error(f"Error compressing frame: {e}")
             return None
+    
+    def _send_video_packet_stable_sequenced(self, compressed_frame: bytes, 
+                                           capture_timestamp: float, relative_timestamp: float):
+        """
+        Send compressed video frame with sequencing timestamps.
+        
+        Args:
+            compressed_frame: Compressed video frame data
+            capture_timestamp: Absolute capture timestamp
+            relative_timestamp: Relative timestamp from capture start
+        """
+        try:
+            if not self.connection_manager:
+                logger.warning("No connection manager available")
+                return
+            
+            # Reasonable packet size for stability
+            max_packet_size = 262144  # 256KB for stable transmission
+            if len(compressed_frame) > max_packet_size:
+                logger.warning(f"Frame too large ({len(compressed_frame)} bytes), skipping")
+                return
+            
+            # Create packet with sequencing information
+            with self._lock:
+                try:
+                    # Create enhanced video packet with timestamps
+                    video_packet = MessageFactory.create_sequenced_video_packet(
+                        sender_id=self.client_id,
+                        sequence_num=self.sequence_number,
+                        video_data=compressed_frame,
+                        capture_timestamp=capture_timestamp,
+                        relative_timestamp=relative_timestamp
+                    )
+                    self.sequence_number += 1
+                except Exception as e:
+                    logger.error(f"Error creating sequenced video packet: {e}")
+                    # Fallback to regular packet
+                    video_packet = MessageFactory.create_video_packet(
+                        sender_id=self.client_id,
+                        sequence_num=self.sequence_number,
+                        video_data=compressed_frame
+                    )
+                    self.sequence_number += 1
+            
+            # Send with error handling
+            try:
+                success = self.connection_manager.send_udp_packet(video_packet)
+                if success:
+                    self.stats['frames_sent'] += 1
+                else:
+                    logger.warning("Failed to send sequenced video packet")
+            except Exception as e:
+                logger.error(f"Error sending sequenced video packet: {e}")
+                
+        except Exception as e:
+            logger.error(f"Sequenced video packet transmission error: {e}")
     
     def _send_video_packet_stable(self, compressed_frame: bytes):
         """

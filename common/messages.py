@@ -266,6 +266,25 @@ class MessageFactory:
         )
     
     @staticmethod
+    def create_sequenced_video_packet(sender_id: str, sequence_num: int, video_data: bytes,
+                                    capture_timestamp: float, relative_timestamp: float) -> UDPPacket:
+        """Create a sequenced video UDP packet with timing information."""
+        # Embed timing information in packet metadata
+        packet = UDPPacket(
+            packet_type=MessageType.VIDEO.value,
+            sender_id=sender_id,
+            sequence_num=sequence_num,
+            data=video_data
+        )
+        
+        # Add timing metadata
+        packet.capture_timestamp = capture_timestamp
+        packet.relative_timestamp = relative_timestamp
+        packet.network_timestamp = time.perf_counter()
+        
+        return packet
+    
+    @staticmethod
     def create_presenter_request_message(sender_id: str) -> TCPMessage:
         """Create a presenter request message."""
         return TCPMessage(
