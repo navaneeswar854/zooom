@@ -299,6 +299,253 @@ class ConnectionManager:
         
         return self.udp_client.send_to_server(video_packet.serialize())
     
+    def send_screen_frame(self, frame_data: bytes) -> tuple[bool, str]:
+        """
+        Send screen frame data via TCP with enhanced network error handling.
+        
+        Args:
+            frame_data: Compressed screen frame data
+            
+        Returns:
+            tuple[bool, str]: (success, error_message_or_success_message)
+        """
+        if not self._is_connected():
+            error_msg = "Cannot send screen frame: not connected to server"
+            logger.warning(error_msg)
+            # Trigger reconnection attempt if not already in progress
+            if self.status != ConnectionStatus.RECONNECTING:
+                self._handle_connection_lost()
+            return False, error_msg
+        
+        if not self.client_id:
+            error_msg = "Cannot send screen frame: client ID not available"
+            logger.warning(error_msg)
+            return False, error_msg
+        
+        if not frame_data:
+            error_msg = "Cannot send empty screen frame data"
+            logger.warning(error_msg)
+            return False, error_msg
+        
+        # Check frame size to prevent network overload
+        max_frame_size = 1024 * 1024  # 1MB limit
+        if len(frame_data) > max_frame_size:
+            error_msg = f"Screen frame too large ({len(frame_data)} bytes, max {max_frame_size})"
+            logger.warning(error_msg)
+            return False, error_msg
+        
+        try:
+            # Create screen share message with frame data
+            screen_message = TCPMessage(
+                msg_type=MessageType.SCREEN_SHARE.value,
+                sender_id=self.client_id,
+                data={
+                    'frame_data': frame_data.hex(),  # Convert to hex for JSON serialization
+                    'timestamp': time.time(),
+                    'frame_size': len(frame_data)
+                }
+            )
+            
+            # Validate message before sending
+            if not screen_message.is_valid():
+                error_msg = "Invalid screen frame message created"
+                logger.error(error_msg)
+                return False, error_msg
+            
+            # Attempt to send with retry logic for network issues
+            max_retries = 2
+            retry_delay = 0.1
+            
+            for attempt in range(max_retries):
+                # Check connection before each attempt
+                if not self._is_connected():
+                    error_msg = "Connection lost during screen frame transmission"
+                    logger.warning(error_msg)
+                    self._handle_connection_lost()
+                    return False, error_msg
+                
+                success = self._send_tcp_message(screen_message)
+                
+                if success:
+                    success_msg = f"Screen frame sent successfully ({len(frame_data)} bytes)"
+                    logger.debug(success_msg)  # Use debug level to avoid spam
+                    return True, success_msg
+                else:
+                    if attempt < max_retries - 1:
+                        logger.debug(f"Screen frame send failed, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                    else:
+                        error_msg = f"Failed to send screen frame after {max_retries} attempts"
+                        logger.error(error_msg)
+                        # Check if connection is still valid
+                        if not self._is_connected():
+                            self._handle_connection_lost()
+                        return False, error_msg
+        
+        except ConnectionError as e:
+            error_msg = f"Network connection error sending screen frame: {e}"
+            logger.error(error_msg)
+            self._handle_connection_lost()
+            return False, error_msg
+        
+        except Exception as e:
+            error_msg = f"Unexpected error sending screen frame: {e}"
+            logger.error(error_msg)
+            # Check if this might be a network issue
+            if "connection" in str(e).lower() or "socket" in str(e).lower():
+                self._handle_connection_lost()
+            return False, error_msg
+    
+    def test_screen_sharing_messages(self) -> tuple[bool, str]:
+        """
+        Test screen sharing message creation and validation.
+        
+        Returns:
+            tuple[bool, str]: (all_tests_passed, test_results)
+        """
+        test_results = []
+        all_passed = True
+        
+        try:
+            # Import MessageValidator here to avoid circular imports
+            from common.messages import MessageValidator
+            
+            # Test 1: Presenter request message
+            try:
+                presenter_request = MessageFactory.create_presenter_request_message("test_client_123")
+                is_valid, error_msg = MessageValidator.validate_screen_sharing_message(presenter_request)
+                if is_valid:
+                    test_results.append("✓ Presenter request message creation and validation: PASSED")
+                else:
+                    test_results.append(f"✗ Presenter request message validation: FAILED - {error_msg}")
+                    all_passed = False
+            except Exception as e:
+                test_results.append(f"✗ Presenter request message creation: FAILED - {e}")
+                all_passed = False
+            
+            # Test 2: Screen share start message
+            try:
+                start_message = MessageFactory.create_screen_share_start_message("test_client_123")
+                is_valid, error_msg = MessageValidator.validate_screen_sharing_message(start_message)
+                if is_valid:
+                    test_results.append("✓ Screen share start message creation and validation: PASSED")
+                else:
+                    test_results.append(f"✗ Screen share start message validation: FAILED - {error_msg}")
+                    all_passed = False
+            except Exception as e:
+                test_results.append(f"✗ Screen share start message creation: FAILED - {e}")
+                all_passed = False
+            
+            # Test 3: Screen share stop message
+            try:
+                stop_message = MessageFactory.create_screen_share_stop_message("test_client_123")
+                is_valid, error_msg = MessageValidator.validate_screen_sharing_message(stop_message)
+                if is_valid:
+                    test_results.append("✓ Screen share stop message creation and validation: PASSED")
+                else:
+                    test_results.append(f"✗ Screen share stop message validation: FAILED - {error_msg}")
+                    all_passed = False
+            except Exception as e:
+                test_results.append(f"✗ Screen share stop message creation: FAILED - {e}")
+                all_passed = False
+            
+            # Test 4: Presenter granted message
+            try:
+                granted_message = MessageFactory.create_presenter_granted_message("server", "test_client_123")
+                is_valid, error_msg = MessageValidator.validate_screen_sharing_message(granted_message)
+                if is_valid:
+                    test_results.append("✓ Presenter granted message creation and validation: PASSED")
+                else:
+                    test_results.append(f"✗ Presenter granted message validation: FAILED - {error_msg}")
+                    all_passed = False
+            except Exception as e:
+                test_results.append(f"✗ Presenter granted message creation: FAILED - {e}")
+                all_passed = False
+            
+            # Test 5: Presenter denied message
+            try:
+                denied_message = MessageFactory.create_presenter_denied_message("server", "Another user is already presenting")
+                is_valid, error_msg = MessageValidator.validate_screen_sharing_message(denied_message)
+                if is_valid:
+                    test_results.append("✓ Presenter denied message creation and validation: PASSED")
+                else:
+                    test_results.append(f"✗ Presenter denied message validation: FAILED - {error_msg}")
+                    all_passed = False
+            except Exception as e:
+                test_results.append(f"✗ Presenter denied message creation: FAILED - {e}")
+                all_passed = False
+            
+            # Test 6: Screen frame message
+            try:
+                test_frame_data = b"test_screen_frame_data_123"
+                screen_message = TCPMessage(
+                    msg_type=MessageType.SCREEN_SHARE.value,
+                    sender_id="test_client_123",
+                    data={
+                        'frame_data': test_frame_data.hex(),
+                        'timestamp': time.time(),
+                        'frame_size': len(test_frame_data)
+                    }
+                )
+                is_valid, error_msg = MessageValidator.validate_screen_sharing_message(screen_message)
+                if is_valid:
+                    test_results.append("✓ Screen frame message creation and validation: PASSED")
+                else:
+                    test_results.append(f"✗ Screen frame message validation: FAILED - {error_msg}")
+                    all_passed = False
+            except Exception as e:
+                test_results.append(f"✗ Screen frame message creation: FAILED - {e}")
+                all_passed = False
+            
+            # Test 7: Message serialization/deserialization
+            try:
+                test_message = MessageFactory.create_presenter_request_message("test_client_123")
+                serialized = test_message.serialize()
+                deserialized = deserialize_tcp_message(serialized)
+                
+                if (deserialized.msg_type == test_message.msg_type and 
+                    deserialized.sender_id == test_message.sender_id and
+                    deserialized.data == test_message.data):
+                    test_results.append("✓ Message serialization/deserialization: PASSED")
+                else:
+                    test_results.append("✗ Message serialization/deserialization: FAILED - Data mismatch")
+                    all_passed = False
+            except Exception as e:
+                test_results.append(f"✗ Message serialization/deserialization: FAILED - {e}")
+                all_passed = False
+            
+            # Test 8: TCP message sending (if connected)
+            if self._is_connected():
+                try:
+                    # Test with a harmless heartbeat message to verify TCP sending works
+                    test_heartbeat = MessageFactory.create_heartbeat_message(self.client_id)
+                    send_success = self._send_tcp_message(test_heartbeat)
+                    if send_success:
+                        test_results.append("✓ TCP message transmission: PASSED")
+                    else:
+                        test_results.append("✗ TCP message transmission: FAILED - Send returned False")
+                        all_passed = False
+                except Exception as e:
+                    test_results.append(f"✗ TCP message transmission: FAILED - {e}")
+                    all_passed = False
+            else:
+                test_results.append("⚠ TCP message transmission: SKIPPED - Not connected")
+            
+            result_summary = "\n".join(test_results)
+            
+            if all_passed:
+                logger.info("All screen sharing message tests passed")
+                return True, f"All screen sharing message tests passed:\n{result_summary}"
+            else:
+                logger.warning("Some screen sharing message tests failed")
+                return False, f"Some screen sharing message tests failed:\n{result_summary}"
+        
+        except Exception as e:
+            error_msg = f"Error running screen sharing message tests: {e}"
+            logger.error(error_msg)
+            return False, error_msg
+    
     def send_udp_packet(self, packet: UDPPacket) -> bool:
         """
         Send a UDP packet to the server.
@@ -335,89 +582,203 @@ class ConnectionManager:
         """
         return self._send_tcp_message(message)
     
-    def request_presenter_role(self) -> bool:
+    def request_presenter_role(self) -> tuple[bool, str]:
         """
-        Request presenter role for screen sharing.
+        Request presenter role for screen sharing with enhanced network error handling.
         
         Returns:
-            bool: True if request sent successfully
+            tuple[bool, str]: (success, error_message_or_success_message)
         """
         if not self._is_connected():
-            logger.warning("Cannot request presenter role: not connected")
-            return False
+            error_msg = "Cannot request presenter role: not connected to server"
+            logger.warning(error_msg)
+            # Trigger reconnection if not already in progress
+            if self.status != ConnectionStatus.RECONNECTING:
+                self._handle_connection_lost()
+            return False, error_msg
+        
+        if not self.client_id:
+            error_msg = "Cannot request presenter role: client ID not available"
+            logger.warning(error_msg)
+            return False, error_msg
+        
+        # Check if we already have presenter role
+        if hasattr(self, '_is_presenter') and self._is_presenter:
+            success_msg = "Already have presenter role"
+            logger.info(success_msg)
+            return True, success_msg
         
         try:
             presenter_request = MessageFactory.create_presenter_request_message(self.client_id)
             logger.info(f"Created presenter request message: {presenter_request.msg_type}")
-            success = self._send_tcp_message(presenter_request)
             
-            if success:
-                logger.info("Sent presenter role request")
-            else:
-                logger.error("Failed to send presenter role request")
+            # Attempt to send with retry logic and connection monitoring
+            max_retries = 3
+            retry_delay = 0.5
             
-            return success
+            for attempt in range(max_retries):
+                # Check connection before each attempt
+                if not self._is_connected():
+                    error_msg = "Connection lost during presenter role request"
+                    logger.warning(error_msg)
+                    self._handle_connection_lost()
+                    return False, error_msg
+                
+                success = self._send_tcp_message(presenter_request)
+                
+                if success:
+                    success_msg = "Presenter role request sent successfully"
+                    logger.info(success_msg)
+                    return True, success_msg
+                else:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Failed to send presenter role request, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        error_msg = f"Failed to send presenter role request after {max_retries} attempts"
+                        logger.error(error_msg)
+                        # Check if connection is still valid
+                        if not self._is_connected():
+                            self._handle_connection_lost()
+                        return False, error_msg
+        
+        except ConnectionError as e:
+            error_msg = f"Network connection error requesting presenter role: {e}"
+            logger.error(error_msg)
+            self._handle_connection_lost()
+            return False, error_msg
         
         except Exception as e:
-            logger.error(f"Error requesting presenter role: {e}")
-            return False
+            error_msg = f"Unexpected error requesting presenter role: {e}"
+            logger.error(error_msg)
+            # Check if this might be a network issue
+            if "connection" in str(e).lower() or "socket" in str(e).lower():
+                self._handle_connection_lost()
+            return False, error_msg
     
-    def start_screen_sharing(self) -> bool:
+    def start_screen_sharing(self) -> tuple[bool, str]:
         """
-        Start screen sharing session.
+        Start screen sharing session with enhanced network error handling.
         
         Returns:
-            bool: True if start message sent successfully
+            tuple[bool, str]: (success, error_message_or_success_message)
         """
         if not self._is_connected():
-            logger.warning("Cannot start screen sharing: not connected")
-            return False
+            error_msg = "Cannot start screen sharing: not connected to server"
+            logger.warning(error_msg)
+            # Trigger reconnection if not already in progress
+            if self.status != ConnectionStatus.RECONNECTING:
+                self._handle_connection_lost()
+            return False, error_msg
+        
+        if not self.client_id:
+            error_msg = "Cannot start screen sharing: client ID not available"
+            logger.warning(error_msg)
+            return False, error_msg
         
         try:
             start_message = MessageFactory.create_screen_share_start_message(self.client_id)
             logger.info(f"Creating screen share start message: {start_message.msg_type}")
-            success = self._send_tcp_message(start_message)
             
-            if success:
-                logger.info("Successfully sent screen sharing start message to server")
-            else:
-                logger.error("Failed to send screen sharing start message")
+            # Attempt to send with retry logic and connection monitoring
+            max_retries = 3
+            retry_delay = 0.5
             
-            return success
+            for attempt in range(max_retries):
+                # Check connection before each attempt
+                if not self._is_connected():
+                    error_msg = "Connection lost during screen sharing start"
+                    logger.warning(error_msg)
+                    self._handle_connection_lost()
+                    return False, error_msg
+                
+                success = self._send_tcp_message(start_message)
+                
+                if success:
+                    success_msg = "Screen sharing start message sent successfully"
+                    logger.info(success_msg)
+                    return True, success_msg
+                else:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Failed to send screen sharing start message, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        error_msg = f"Failed to send screen sharing start message after {max_retries} attempts"
+                        logger.error(error_msg)
+                        # Check if connection is still valid
+                        if not self._is_connected():
+                            self._handle_connection_lost()
+                        return False, error_msg
+        
+        except ConnectionError as e:
+            error_msg = f"Network connection error starting screen sharing: {e}"
+            logger.error(error_msg)
+            self._handle_connection_lost()
+            return False, error_msg
         
         except Exception as e:
-            logger.error(f"Error starting screen sharing: {e}")
-            return False
+            error_msg = f"Unexpected error starting screen sharing: {e}"
+            logger.error(error_msg)
+            # Check if this might be a network issue
+            if "connection" in str(e).lower() or "socket" in str(e).lower():
+                self._handle_connection_lost()
+            return False, error_msg
     
-    def stop_screen_sharing(self) -> bool:
+    def stop_screen_sharing(self) -> tuple[bool, str]:
         """
-        Stop screen sharing session.
+        Stop screen sharing session with enhanced network error handling.
         
         Returns:
-            bool: True if stop message sent successfully
+            tuple[bool, str]: (success, error_message_or_success_message)
         """
         if not self._is_connected():
-            logger.warning("Cannot stop screen sharing: not connected")
-            return False
+            # For stop messages, we still try to send even if connection appears lost
+            # as it might be a temporary issue and the stop is important
+            logger.warning("Connection appears lost, but attempting to send stop message anyway")
+        
+        if not self.client_id:
+            error_msg = "Cannot stop screen sharing: client ID not available"
+            logger.warning(error_msg)
+            return False, error_msg
         
         try:
             stop_message = MessageFactory.create_screen_share_stop_message(self.client_id)
-            success = self._send_tcp_message(stop_message)
             
-            if success:
-                logger.info("Sent screen sharing stop message")
-            else:
-                logger.error("Failed to send screen sharing stop message")
+            # Attempt to send with retry logic and connection monitoring
+            max_retries = 3
+            retry_delay = 0.5
             
-            return success
+            for attempt in range(max_retries):
+                success = self._send_tcp_message(stop_message)
+                
+                if success:
+                    success_msg = "Screen sharing stop message sent successfully"
+                    logger.info(success_msg)
+                    return True, success_msg
+                else:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Failed to send screen sharing stop message, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        # For stop messages, we consider it partially successful even if server wasn't notified
+                        # The local cleanup is more important
+                        error_msg = f"Failed to notify server of screen sharing stop after {max_retries} attempts"
+                        logger.warning(error_msg)
+                        return False, error_msg
+        
+        except ConnectionError as e:
+            error_msg = f"Network connection error stopping screen sharing: {e}"
+            logger.warning(error_msg)  # Warning instead of error for stop messages
+            # Don't trigger reconnection for stop messages
+            return False, error_msg
         
         except Exception as e:
-            logger.error(f"Error stopping screen sharing: {e}")
-            return False
-            return self.udp_client.send_to_server(packet_data)
-        except Exception as e:
-            logger.error(f"Error sending UDP packet: {e}")
-            return False
+            error_msg = f"Unexpected error stopping screen sharing: {e}"
+            logger.error(error_msg)
+            return False, error_msg
     
     def update_media_status(self, video_enabled: bool, audio_enabled: bool) -> bool:
         """
@@ -987,9 +1348,12 @@ class ConnectionManager:
             logger.error(f"Error handling UDP packet: {e}")
     
     def _handle_connection_lost(self):
-        """Handle connection loss and attempt reconnection."""
+        """Handle connection loss and attempt reconnection with screen sharing awareness."""
         logger.warning("Connection lost, attempting to reconnect...")
         self._update_status(ConnectionStatus.RECONNECTING)
+        
+        # Notify about connection loss affecting screen sharing
+        self._notify_screen_sharing_connection_lost()
         
         # Cleanup current connection
         self._cleanup_connection()
@@ -1003,6 +1367,8 @@ class ConnectionManager:
             
             if self.connect(self.username):
                 logger.info("Reconnection successful")
+                # Notify about successful reconnection
+                self._notify_screen_sharing_reconnected()
                 return
             
             # Exponential backoff
@@ -1011,6 +1377,40 @@ class ConnectionManager:
         # Max attempts reached
         logger.error("Max reconnection attempts reached")
         self._update_status(ConnectionStatus.ERROR)
+        self._notify_screen_sharing_connection_failed()
+    
+    def _notify_screen_sharing_connection_lost(self):
+        """Notify callbacks about connection loss affecting screen sharing."""
+        try:
+            if 'screen_sharing_connection_lost' in self.message_callbacks:
+                self.message_callbacks['screen_sharing_connection_lost']()
+            
+            if 'connection_lost' in self.message_callbacks:
+                self.message_callbacks['connection_lost']()
+        except Exception as e:
+            logger.error(f"Error notifying about connection loss: {e}")
+    
+    def _notify_screen_sharing_reconnected(self):
+        """Notify callbacks about successful reconnection."""
+        try:
+            if 'screen_sharing_reconnected' in self.message_callbacks:
+                self.message_callbacks['screen_sharing_reconnected']()
+            
+            if 'connection_restored' in self.message_callbacks:
+                self.message_callbacks['connection_restored']()
+        except Exception as e:
+            logger.error(f"Error notifying about reconnection: {e}")
+    
+    def _notify_screen_sharing_connection_failed(self):
+        """Notify callbacks about permanent connection failure."""
+        try:
+            if 'screen_sharing_connection_failed' in self.message_callbacks:
+                self.message_callbacks['screen_sharing_connection_failed']()
+            
+            if 'connection_failed' in self.message_callbacks:
+                self.message_callbacks['connection_failed']()
+        except Exception as e:
+            logger.error(f"Error notifying about connection failure: {e}")
     
     def _cleanup_connection(self):
         """Clean up connection resources."""

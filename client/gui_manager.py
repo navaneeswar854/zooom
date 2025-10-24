@@ -673,10 +673,21 @@ class ScreenShareFrame(ModuleFrame):
                                     background='black', foreground='white')
         self.screen_label.pack(expand=True)
         
-        # Screen frame display (for actual screen content)
-        self.screen_canvas = tk.Canvas(self.screen_display, bg='black')
+        # Screen frame display (for actual screen content) with improved initialization
+        self.screen_canvas = tk.Canvas(self.screen_display, bg='black', highlightthickness=0)
         self.screen_canvas.pack(fill='both', expand=True)
         self.screen_canvas.pack_forget()  # Initially hidden
+        
+        # Canvas state tracking for automatic rescaling
+        self.last_canvas_size = (0, 0)
+        self.current_frame_data = None
+        self.current_presenter = None
+        
+        # Bind canvas resize event for automatic rescaling
+        self.screen_canvas.bind('<Configure>', self._on_canvas_resize)
+        
+        # Initialize canvas with proper size detection
+        self._initialize_canvas()
         
         # Callbacks
         self.screen_share_callback: Optional[Callable[[bool], None]] = None
@@ -686,19 +697,29 @@ class ScreenShareFrame(ModuleFrame):
         self.screen_share_callback = callback
     
     def _toggle_screen_share(self):
-        """Toggle screen sharing on/off or request presenter role."""
+        """Toggle screen sharing on/off or request presenter role with loading states."""
         logger.info(f"Screen share button clicked. Current sharing: {self.is_sharing}")
         
         # Check button text to determine action
         button_text = self.share_button.cget('text')
         
         if button_text == "Request Presenter Role":
+            # Add loading states during presenter role requests
+            self.share_button.config(state='disabled', text="Requesting...")
+            self.sharing_status.config(text="Requesting presenter role...", foreground='orange')
+            
             # Request presenter role
             if self.screen_share_callback:
                 logger.info("Requesting presenter role")
                 self.screen_share_callback(True)  # This will trigger presenter role request
+                
+                # Set timeout to reset button if no response
+                self.after(10000, self._reset_presenter_request_timeout)
         elif button_text.startswith("Start"):
             # Start screen sharing (already presenter)
+            self.share_button.config(state='disabled', text="Starting...")
+            self.sharing_status.config(text="Starting screen share...", foreground='orange')
+            
             if self.screen_share_callback:
                 logger.info("Starting screen sharing")
                 self.screen_share_callback(True)
@@ -710,6 +731,14 @@ class ScreenShareFrame(ModuleFrame):
         else:
             logger.warning(f"Unknown button state: {button_text}")
     
+    def _reset_presenter_request_timeout(self):
+        """Reset presenter request button after timeout."""
+        if self.share_button.cget('text') == "Requesting...":
+            self.share_button.config(state='normal', text="Request Presenter Role")
+            self.sharing_status.config(text="Request timed out - try again", foreground='red')
+            # Reset to normal after delay
+            self.after(3000, lambda: self.sharing_status.config(text="Ready to request presenter role", foreground='black'))
+    
     def update_presenter(self, presenter_name: str = None):
         """Update presenter display (for showing who is currently presenting)."""
         self.current_presenter_name = presenter_name
@@ -718,7 +747,8 @@ class ScreenShareFrame(ModuleFrame):
         if presenter_name and not self.is_sharing:
             # Someone else is sharing - disable our button
             self.share_button.config(state='disabled', text=f"{presenter_name} is sharing")
-            self.sharing_status.config(text=f"{presenter_name} is sharing")
+            # Display "[Username] is sharing" when receiving remote screen
+            self.sharing_status.config(text=f"{presenter_name} is sharing", foreground='blue')
             # Show their screen area
             if not self.screen_canvas.winfo_viewable():
                 self.screen_label.pack_forget()
@@ -726,7 +756,8 @@ class ScreenShareFrame(ModuleFrame):
         elif not presenter_name and not self.is_sharing:
             # No one is sharing - enable our button
             self.share_button.config(state='normal', text="Start Screen Share")
-            self.sharing_status.config(text="Ready to share")
+            # Reset status to "Ready to share" when screen sharing stops
+            self.sharing_status.config(text="Ready to share", foreground='black')
             # Hide screen area
             self.screen_canvas.pack_forget()
             self.screen_label.pack(expand=True)
@@ -739,18 +770,20 @@ class ScreenShareFrame(ModuleFrame):
                 self.screen_label.config(text="No screen sharing active")
     
     def set_sharing_status(self, is_sharing: bool):
-        """Update screen sharing status."""
+        """Update screen sharing status with proper status messages."""
         self.is_sharing = is_sharing
         self.enabled = is_sharing
         self._update_status_indicator()
         
         if is_sharing:
             self.share_button.config(text="Stop Screen Share", state='normal')
+            # Show "You are sharing" when local screen sharing is active
             self.sharing_status.config(text="You are sharing", foreground='green')
             self.screen_label.pack_forget()
             self.screen_canvas.pack(fill='both', expand=True)
         else:
             self.share_button.config(text="Start Screen Share", state='normal')
+            # Reset status to "Ready to share" when screen sharing stops
             self.sharing_status.config(text="Ready to share", foreground='black')
             self.screen_canvas.pack_forget()
             self.screen_label.pack(expand=True)
@@ -762,18 +795,20 @@ class ScreenShareFrame(ModuleFrame):
 
     
     def display_screen_frame(self, frame_data, presenter_name: str):
-        """Display a screen frame from the presenter."""
+        """Display a screen frame from the presenter with improved scaling and centering."""
         try:
             import io
             from PIL import Image, ImageTk
+            
+            # Store current frame data for rescaling when canvas size changes
+            self._store_current_frame(frame_data, presenter_name)
             
             # Update presenter info
             if self.current_presenter_name != presenter_name:
                 self.update_presenter(presenter_name)
                 logger.info(f"Now receiving screen from {presenter_name}")
             
-            # Display screen frame for everyone (including the sharer for feedback)
-            # Convert frame data to image
+            # Convert frame data to PIL Image
             image = Image.open(io.BytesIO(frame_data))
             
             # Show canvas first to ensure it's visible
@@ -781,72 +816,173 @@ class ScreenShareFrame(ModuleFrame):
                 self.screen_label.pack_forget()
                 self.screen_canvas.pack(fill='both', expand=True)
             
-            # Force canvas to update its size
+            # Force canvas to update its size and ensure it's ready
             self.screen_canvas.update_idletasks()
             
-            # Get canvas dimensions
+            # Get canvas dimensions with fallback values
             canvas_width = self.screen_canvas.winfo_width()
             canvas_height = self.screen_canvas.winfo_height()
             
+            # Use fallback dimensions if canvas is not properly initialized
+            if canvas_width <= 10 or canvas_height <= 10:
+                canvas_width = max(canvas_width, 400)  # Fallback minimum width
+                canvas_height = max(canvas_height, 300)  # Fallback minimum height
+                logger.info(f"Using fallback canvas dimensions: {canvas_width}x{canvas_height}")
+            
             logger.info(f"Canvas size: {canvas_width}x{canvas_height}, Image size: {image.size}")
             
-            if canvas_width > 10 and canvas_height > 10:  # Canvas is properly initialized
-                # Calculate scaling to fit canvas while maintaining aspect ratio
-                img_width, img_height = image.size
-                scale_w = canvas_width / img_width
-                scale_h = canvas_height / img_height
-                scale = min(scale_w, scale_h)
-                
-                # Use a minimum scale to ensure visibility
-                scale = max(scale, 0.1)
-                
-                new_width = int(img_width * scale)
-                new_height = int(img_height * scale)
-                
-                logger.info(f"Scaling image from {img_width}x{img_height} to {new_width}x{new_height} (scale: {scale:.2f})")
-                
-                # Resize image
-                image = image.resize((new_width, new_height), Image.LANCZOS)
-                
-                # Convert to PhotoImage for tkinter
-                photo = ImageTk.PhotoImage(image)
-                
-                # Clear canvas and display image
-                self.screen_canvas.delete("all")
-                
-                # Center the image in the canvas
-                x = max(0, (canvas_width - new_width) // 2)
-                y = max(0, (canvas_height - new_height) // 2)
-                
-                self.screen_canvas.create_image(x, y, anchor='nw', image=photo)
-                
-                # Keep a reference to prevent garbage collection
-                self.screen_canvas.image = photo
-                
-                logger.info(f"Image displayed at position ({x}, {y})")
-                
-            else:
-                # Canvas not ready, try again later or show text
-                logger.warning(f"Canvas not ready: {canvas_width}x{canvas_height}")
-                self.screen_label.config(text=f"Loading screen from {presenter_name}...")
-                # Try to show canvas anyway
-                if not self.screen_canvas.winfo_viewable():
-                    self.screen_label.pack_forget()
-                    self.screen_canvas.pack(fill='both', expand=True)
-                
+            # Calculate proper aspect ratio scaling to prevent distortion
+            img_width, img_height = image.size
+            if img_width <= 0 or img_height <= 0:
+                logger.error("Invalid image dimensions")
+                return
+            
+            # Calculate scale factors for both dimensions
+            scale_w = canvas_width / img_width
+            scale_h = canvas_height / img_height
+            
+            # Use the smaller scale to fit within canvas while maintaining aspect ratio
+            scale = min(scale_w, scale_h)
+            
+            # Apply minimum scale factor to prevent tiny images (at least 20% of original)
+            scale = max(scale, 0.2)
+            
+            # Calculate new dimensions
+            new_width = int(img_width * scale)
+            new_height = int(img_height * scale)
+            
+            # Ensure minimum visible size
+            new_width = max(new_width, 100)
+            new_height = max(new_height, 75)
+            
+            logger.info(f"Scaling image from {img_width}x{img_height} to {new_width}x{new_height} (scale: {scale:.2f})")
+            
+            # Resize image with high quality resampling
+            image = image.resize((new_width, new_height), Image.LANCZOS)
+            
+            # Convert to PhotoImage for tkinter
+            photo = ImageTk.PhotoImage(image)
+            
+            # Clear canvas completely
+            self.screen_canvas.delete("all")
+            
+            # Center the image in the canvas to remove black space
+            x = (canvas_width - new_width) // 2
+            y = (canvas_height - new_height) // 2
+            
+            # Ensure centering coordinates are not negative
+            x = max(0, x)
+            y = max(0, y)
+            
+            # Create image on canvas at centered position
+            self.screen_canvas.create_image(x, y, anchor='nw', image=photo)
+            
+            # Keep a reference to prevent garbage collection
+            self.screen_canvas.image = photo
+            
+            logger.info(f"Image displayed at centered position ({x}, {y})")
+            
         except Exception as e:
             logger.error(f"Error displaying screen frame: {e}")
+            # Show error message to user
+            if hasattr(self, 'screen_label'):
+                self.screen_label.config(text=f"Error displaying screen from {presenter_name}")
+                if not self.screen_label.winfo_viewable():
+                    self.screen_canvas.pack_forget()
+                    self.screen_label.pack(expand=True)
+    
+    def _initialize_canvas(self):
+        """Initialize canvas with proper size detection and fallback values."""
+        try:
+            # Force initial update to get proper dimensions
+            self.screen_canvas.update_idletasks()
+            
+            # Get initial canvas size
+            width = self.screen_canvas.winfo_width()
+            height = self.screen_canvas.winfo_height()
+            
+            # Set fallback dimensions if canvas is not properly initialized
+            if width <= 1 or height <= 1:
+                # Use parent frame dimensions as fallback
+                parent_width = self.screen_display.winfo_width()
+                parent_height = self.screen_display.winfo_height()
+                
+                if parent_width > 1 and parent_height > 1:
+                    width = max(parent_width - 10, 400)  # Account for padding
+                    height = max(parent_height - 10, 300)
+                else:
+                    # Ultimate fallback dimensions
+                    width = 400
+                    height = 300
+                
+                logger.info(f"Canvas initialized with fallback dimensions: {width}x{height}")
+            else:
+                logger.info(f"Canvas initialized with actual dimensions: {width}x{height}")
+            
+            # Store initial size
+            self.last_canvas_size = (width, height)
+            
+        except Exception as e:
+            logger.error(f"Error initializing canvas: {e}")
+            # Set safe fallback dimensions
+            self.last_canvas_size = (400, 300)
+    
+    def _on_canvas_resize(self, event):
+        """Handle canvas resize events for automatic rescaling."""
+        try:
+            # Only handle resize events for the canvas itself, not child widgets
+            if event.widget != self.screen_canvas:
+                return
+            
+            new_width = event.width
+            new_height = event.height
+            
+            # Check if size actually changed significantly (avoid minor fluctuations)
+            old_width, old_height = self.last_canvas_size
+            width_change = abs(new_width - old_width)
+            height_change = abs(new_height - old_height)
+            
+            if width_change > 5 or height_change > 5:  # Only rescale for significant changes
+                logger.info(f"Canvas resized from {old_width}x{old_height} to {new_width}x{new_height}")
+                
+                # Update stored size
+                self.last_canvas_size = (new_width, new_height)
+                
+                # If we have current frame data, rescale it
+                if self.current_frame_data and self.current_presenter:
+                    logger.info("Rescaling current frame for new canvas size")
+                    self.display_screen_frame(self.current_frame_data, self.current_presenter)
+                
+        except Exception as e:
+            logger.error(f"Error handling canvas resize: {e}")
+    
+    def _store_current_frame(self, frame_data, presenter_name: str):
+        """Store current frame data for rescaling when canvas size changes."""
+        self.current_frame_data = frame_data
+        self.current_presenter = presenter_name
     
     def handle_presenter_granted(self):
-        """Handle presenter role being granted."""
+        """Handle presenter role being granted with enhanced feedback."""
         self.set_presenter_status(True)
+        # Show visual indicators for active screen sharing state
+        self.sharing_status.config(text="You are the presenter - ready to share", foreground='blue')
         messagebox.showinfo("Screen Share", "You are now the presenter! You can start screen sharing.")
     
     def handle_presenter_denied(self, reason: str = ""):
-        """Handle presenter role being denied."""
+        """Handle presenter role being denied with detailed feedback."""
+        # Display presenter role denial reasons to users
         message = "Presenter request denied"
         if reason:
             message += f": {reason}"
+        else:
+            message += ". Another user may already be presenting."
+        
+        # Show visual feedback in status
+        self.sharing_status.config(text="Presenter request denied", foreground='red')
+        
+        # Reset status after a delay
+        self.after(3000, lambda: self.sharing_status.config(text="Ready to share", foreground='black'))
+        
         messagebox.showwarning("Screen Share", message)
     
     def handle_screen_share_started(self, presenter_name: str):
@@ -857,12 +993,17 @@ class ScreenShareFrame(ModuleFrame):
     
     def handle_screen_share_stopped(self):
         """Handle screen sharing being stopped."""
+        # Clear current presenter when screen sharing stops
+        self.current_presenter_name = None
         self.set_sharing_status(False)
+        # Reset status to "Ready to share" when screen sharing stops
+        self.sharing_status.config(text="Ready to share", foreground='black')
     
     def set_presenter_status(self, is_presenter: bool, presenter_name: str = None):
-        """Set presenter status for screen sharing."""
+        """Set presenter status for screen sharing with visual indicators."""
         if is_presenter:
             self.share_button.config(state='normal', text="Start Screen Share")
+            # Show visual indicators for active screen sharing state
             self.sharing_status.config(text="You are the presenter", foreground='blue')
         else:
             if presenter_name:

@@ -349,6 +349,135 @@ class MessageValidator:
             return False
         
         return True
+    
+    @staticmethod
+    def validate_screen_sharing_message(message: TCPMessage) -> tuple[bool, str]:
+        """
+        Validate screen sharing message structure and content.
+        
+        Args:
+            message: The screen sharing message to validate
+            
+        Returns:
+            tuple[bool, str]: (is_valid, error_message)
+        """
+        # Basic TCP message validation
+        if not MessageValidator.validate_tcp_message(message):
+            return False, "Invalid TCP message structure"
+        
+        # Check if it's a screen sharing related message
+        screen_sharing_types = [
+            MessageType.SCREEN_SHARE.value,
+            MessageType.SCREEN_SHARE_START.value,
+            MessageType.SCREEN_SHARE_STOP.value,
+            MessageType.PRESENTER_REQUEST.value,
+            MessageType.PRESENTER_GRANTED.value,
+            MessageType.PRESENTER_DENIED.value
+        ]
+        
+        if message.msg_type not in screen_sharing_types:
+            return False, f"Not a screen sharing message type: {message.msg_type}"
+        
+        # Validate specific message types
+        if message.msg_type == MessageType.SCREEN_SHARE.value:
+            return MessageValidator._validate_screen_frame_message(message)
+        elif message.msg_type == MessageType.PRESENTER_REQUEST.value:
+            return MessageValidator._validate_presenter_request_message(message)
+        elif message.msg_type == MessageType.PRESENTER_GRANTED.value:
+            return MessageValidator._validate_presenter_granted_message(message)
+        elif message.msg_type == MessageType.PRESENTER_DENIED.value:
+            return MessageValidator._validate_presenter_denied_message(message)
+        elif message.msg_type in [MessageType.SCREEN_SHARE_START.value, MessageType.SCREEN_SHARE_STOP.value]:
+            return MessageValidator._validate_screen_share_control_message(message)
+        
+        return True, "Valid screen sharing message"
+    
+    @staticmethod
+    def _validate_screen_frame_message(message: TCPMessage) -> tuple[bool, str]:
+        """Validate screen frame message data."""
+        data = message.data
+        
+        # Check required fields
+        if 'frame_data' not in data:
+            return False, "Missing frame_data field"
+        
+        if 'timestamp' not in data:
+            return False, "Missing timestamp field"
+        
+        # Validate frame data
+        frame_data = data['frame_data']
+        if not isinstance(frame_data, str):
+            return False, "frame_data must be a hex string"
+        
+        try:
+            # Try to decode hex data
+            bytes.fromhex(frame_data)
+        except ValueError:
+            return False, "Invalid hex data in frame_data"
+        
+        # Validate timestamp
+        timestamp = data['timestamp']
+        if not isinstance(timestamp, (int, float)) or timestamp <= 0:
+            return False, "Invalid timestamp"
+        
+        # Validate optional frame_size field
+        if 'frame_size' in data:
+            frame_size = data['frame_size']
+            if not isinstance(frame_size, int) or frame_size <= 0:
+                return False, "Invalid frame_size"
+            
+            # Check if frame_size matches actual data size
+            actual_size = len(bytes.fromhex(frame_data))
+            if frame_size != actual_size:
+                return False, f"frame_size mismatch: expected {frame_size}, got {actual_size}"
+        
+        return True, "Valid screen frame message"
+    
+    @staticmethod
+    def _validate_presenter_request_message(message: TCPMessage) -> tuple[bool, str]:
+        """Validate presenter request message data."""
+        # Presenter request should have empty data
+        if message.data != {}:
+            return False, "Presenter request should have empty data"
+        
+        return True, "Valid presenter request message"
+    
+    @staticmethod
+    def _validate_presenter_granted_message(message: TCPMessage) -> tuple[bool, str]:
+        """Validate presenter granted message data."""
+        data = message.data
+        
+        if 'presenter_id' not in data:
+            return False, "Missing presenter_id field"
+        
+        presenter_id = data['presenter_id']
+        if not isinstance(presenter_id, str) or len(presenter_id.strip()) == 0:
+            return False, "Invalid presenter_id"
+        
+        return True, "Valid presenter granted message"
+    
+    @staticmethod
+    def _validate_presenter_denied_message(message: TCPMessage) -> tuple[bool, str]:
+        """Validate presenter denied message data."""
+        data = message.data
+        
+        if 'reason' not in data:
+            return False, "Missing reason field"
+        
+        reason = data['reason']
+        if not isinstance(reason, str):
+            return False, "Invalid reason field"
+        
+        return True, "Valid presenter denied message"
+    
+    @staticmethod
+    def _validate_screen_share_control_message(message: TCPMessage) -> tuple[bool, str]:
+        """Validate screen share start/stop message data."""
+        # Control messages should have empty data
+        if message.data != {}:
+            return False, "Screen share control message should have empty data"
+        
+        return True, "Valid screen share control message"
 
 
 # Utility functions for common operations

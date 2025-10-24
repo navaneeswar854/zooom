@@ -116,12 +116,8 @@ class CollaborationClient:
             server_host = self.gui_manager.server_entry.get().strip() or "localhost"
             self.connection_manager = ConnectionManager(server_host=server_host)
             
-            # Create screen manager
-            self.screen_manager = ScreenManager(
-                client_id=self.connection_manager.get_client_id(),
-                connection_manager=self.connection_manager,
-                gui_manager=self.gui_manager
-            )
+            # Note: Screen manager will be initialized after successful connection
+            # when we have a valid client_id
             
             # Setup connection callbacks
             self.connection_manager.register_status_callback(self._on_connection_status_changed)
@@ -223,6 +219,9 @@ class CollaborationClient:
                     self.video_manager.start_video_system()
                     
                     logger.info("Video system initialized")
+                    
+                    # Initialize screen manager after successful connection with proper client ID
+                    self._initialize_screen_manager()
             else:
                 self.gui_manager.show_error(
                     "Connection Failed", 
@@ -248,6 +247,10 @@ class CollaborationClient:
                 self.video_manager.stop_video_system()
                 self.video_manager = None
             
+            if self.screen_manager:
+                self.screen_manager.cleanup()
+                self.screen_manager = None
+            
             if self.connection_manager:
                 self.connection_manager.disconnect()
                 self.connection_manager = None
@@ -261,6 +264,46 @@ class CollaborationClient:
         
         except Exception as e:
             logger.error(f"Error during disconnect: {e}")
+    
+    def _initialize_screen_manager(self):
+        """Initialize screen manager after successful connection with proper client ID."""
+        try:
+            # Validate that connection manager exists
+            if not self.connection_manager:
+                logger.error("Cannot initialize screen manager: no connection manager")
+                return False
+            
+            # Validate that we have a successful connection
+            if not self.connection_manager._is_connected():
+                logger.error("Cannot initialize screen manager: not connected to server")
+                return False
+            
+            # Validate that client ID is available before creating screen manager
+            client_id = self.connection_manager.get_client_id()
+            if not client_id:
+                logger.error("Cannot initialize screen manager: no client ID available")
+                return False
+            
+            # Ensure we don't create duplicate screen managers
+            if self.screen_manager:
+                logger.warning("Screen manager already exists, cleaning up old instance")
+                self.screen_manager.cleanup()
+                self.screen_manager = None
+            
+            # Create screen manager with proper client ID
+            self.screen_manager = ScreenManager(
+                client_id=client_id,
+                connection_manager=self.connection_manager,
+                gui_manager=self.gui_manager
+            )
+            
+            logger.info(f"Screen manager initialized successfully with client ID: {client_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error initializing screen manager: {e}")
+            self.screen_manager = None
+            return False
     
     def _handle_video_toggle(self, enabled: bool):
         """Handle video enable/disable from GUI."""
@@ -357,29 +400,54 @@ class CollaborationClient:
     def _handle_screen_share_toggle(self, enabled: bool):
         """Handle screen sharing toggle from GUI."""
         try:
+            # Check if screen manager exists before calling methods
+            if not self.screen_manager:
+                # Try to initialize screen manager if not available
+                if not self._initialize_screen_manager():
+                    self.gui_manager.show_error("Screen Share Error", "Screen sharing not available - connection required")
+                    # Reset GUI button state since we failed
+                    if hasattr(self.gui_manager, 'screen_share_frame'):
+                        self.gui_manager.screen_share_frame.set_screen_sharing_status(False)
+                    return
+            
             if enabled:
                 # Check if we're already presenter
-                if self.screen_manager and self.screen_manager.is_presenter:
-                    # Start screen sharing
-                    self.screen_manager.start_screen_sharing()
+                if self.screen_manager.is_presenter:
+                    # Start screen sharing directly
+                    success = self.screen_manager.start_screen_sharing()
+                    if not success:
+                        self.gui_manager.show_error("Screen Share Error", "Failed to start screen sharing")
+                        # Reset GUI button state since we failed
+                        if hasattr(self.gui_manager, 'screen_share_frame'):
+                            self.gui_manager.screen_share_frame.set_screen_sharing_status(False)
+                        return
                 else:
-                    # Request presenter role first
-                    if self.screen_manager:
-                        self.screen_manager.request_presenter_role()
-                    else:
-                        logger.error("Screen manager not available")
-                        self.gui_manager.show_error("Screen Share Error", "Screen sharing not available")
+                    # Request presenter role first - screen sharing will start automatically when granted
+                    logger.info("Requesting presenter role for screen sharing")
+                    self.screen_manager.request_presenter_role()
+                    
+                    # Show user feedback that request is pending
+                    if hasattr(self.gui_manager, 'chat_frame') and self.gui_manager.chat_frame:
+                        self.gui_manager.chat_frame.add_system_message("Requesting presenter role...")
             else:
                 # Stop screen sharing
-                if self.screen_manager:
-                    self.screen_manager.stop_screen_sharing()
-                else:
-                    logger.error("Screen manager not available")
+                self.screen_manager.stop_screen_sharing()
             
+            # Update local state
             self.screen_sharing = enabled
         
         except Exception as e:
             logger.error(f"Error toggling screen share: {e}")
+            # Provide detailed error feedback to user
+            error_msg = f"Screen sharing error: {str(e)}"
+            self.gui_manager.show_error("Screen Share Error", error_msg)
+            
+            # Reset GUI button state since we failed
+            if hasattr(self.gui_manager, 'screen_share_frame'):
+                self.gui_manager.screen_share_frame.set_screen_sharing_status(False)
+            
+            # Reset local state
+            self.screen_sharing = False
     
     def _handle_file_upload(self, file_path: str):
         """Handle file upload request from GUI."""
@@ -606,16 +674,49 @@ class CollaborationClient:
     def _on_screen_share_start(self, message: TCPMessage):
         """Handle screen sharing start messages from other clients."""
         try:
+            # Get presenter username from participants list
+            presenter_id = message.sender_id
+            presenter_name = "Unknown"
+            
+            if self.connection_manager:
+                participants = self.connection_manager.get_participants()
+                participant = participants.get(presenter_id, {})
+                presenter_name = participant.get('username', f"Client {presenter_id}")
+            
+            # Add presenter name to message data for screen manager
+            if 'data' not in message.__dict__ or message.data is None:
+                message.data = {}
+            message.data['presenter_name'] = presenter_name
+            
             if self.screen_manager:
                 self.screen_manager.handle_screen_share_message(message)
+                
+            # Add system message to chat
+            if hasattr(self.gui_manager, 'chat_frame') and self.gui_manager.chat_frame:
+                self.gui_manager.chat_frame.add_system_message(f"{presenter_name} started screen sharing")
+                
         except Exception as e:
             logger.error(f"Error handling screen share start: {e}")
     
     def _on_screen_share_stop(self, message: TCPMessage):
         """Handle screen sharing stop messages."""
         try:
+            # Get presenter username from participants list
+            presenter_id = message.sender_id
+            presenter_name = "Unknown"
+            
+            if self.connection_manager:
+                participants = self.connection_manager.get_participants()
+                participant = participants.get(presenter_id, {})
+                presenter_name = participant.get('username', f"Client {presenter_id}")
+            
             if self.screen_manager:
                 self.screen_manager.handle_screen_share_message(message)
+                
+            # Add system message to chat
+            if hasattr(self.gui_manager, 'chat_frame') and self.gui_manager.chat_frame:
+                self.gui_manager.chat_frame.add_system_message(f"{presenter_name} stopped screen sharing")
+                
         except Exception as e:
             logger.error(f"Error handling screen share stop: {e}")
     
@@ -628,20 +729,42 @@ class CollaborationClient:
             logger.error(f"Error handling screen share frame: {e}")
     
     def _on_screen_share_error(self, message: TCPMessage):
-        """Handle screen share error messages."""
+        """Handle screen share error messages with enhanced feedback."""
         try:
             error_msg = message.data.get('error', 'Unknown error')
+            error_type = message.data.get('error_type', 'general')
             logger.warning(f"Screen share error: {error_msg}")
             
-            # Show error to user and stop local screen sharing
-            self.gui_manager.show_error("Screen Share Error", error_msg)
+            # Show detailed error to user with suggestions
+            detailed_msg = error_msg
+            if error_type == 'permission':
+                detailed_msg += "\n\nPlease check your screen recording permissions in system settings."
+            elif error_type == 'capture':
+                detailed_msg += "\n\nTry closing other applications that might be using screen capture."
+            elif error_type == 'network':
+                detailed_msg += "\n\nCheck your network connection and try again."
+            
+            self.gui_manager.show_error("Screen Share Error", detailed_msg)
             
             # Stop screen sharing via screen manager
             if self.screen_manager:
                 self.screen_manager.stop_screen_sharing()
             
-            # Update GUI to show stopped status
-            self.gui_manager.set_screen_sharing_status(False)
+            # Update GUI to show stopped status with error indication
+            if hasattr(self.gui_manager, 'screen_share_frame'):
+                self.gui_manager.screen_share_frame.sharing_status.config(
+                    text="Screen sharing failed", foreground='red'
+                )
+                # Reset after delay
+                self.gui_manager.root.after(5000, lambda: 
+                    self.gui_manager.screen_share_frame.sharing_status.config(
+                        text="Ready to share", foreground='black'
+                    )
+                )
+            
+            # Add error message to chat
+            if hasattr(self.gui_manager, 'chat_frame') and self.gui_manager.chat_frame:
+                self.gui_manager.chat_frame.add_error_message(f"Screen sharing error: {error_msg}")
             
         except Exception as e:
             logger.error(f"Error handling screen share error: {e}")
@@ -661,21 +784,33 @@ class CollaborationClient:
             logger.error(f"Error handling screen share confirmation: {e}")
     
     def _on_presenter_granted(self, message: TCPMessage):
-        """Handle presenter role granted message."""
+        """Handle presenter role granted message with enhanced feedback."""
         try:
             if self.screen_manager:
                 self.screen_manager.handle_presenter_granted()
+                
+            # Add system message to chat
+            if hasattr(self.gui_manager, 'chat_frame') and self.gui_manager.chat_frame:
+                self.gui_manager.chat_frame.add_system_message("You are now the presenter!")
+                
         except Exception as e:
             logger.error(f"Error handling presenter granted: {e}")
+            self.gui_manager.show_error("Screen Share Error", f"Error handling presenter role: {e}")
     
     def _on_presenter_denied(self, message: TCPMessage):
-        """Handle presenter role denied message."""
+        """Handle presenter role denied message with detailed feedback."""
         try:
-            reason = message.data.get('reason', '')
+            reason = message.data.get('reason', 'Another user is already presenting')
             if self.screen_manager:
                 self.screen_manager.handle_presenter_denied(reason)
+                
+            # Add system message to chat with denial reason
+            if hasattr(self.gui_manager, 'chat_frame') and self.gui_manager.chat_frame:
+                self.gui_manager.chat_frame.add_system_message(f"Presenter request denied: {reason}")
+                
         except Exception as e:
             logger.error(f"Error handling presenter denied: {e}")
+            self.gui_manager.show_error("Screen Share Error", f"Error handling presenter denial: {e}")
     
     def _on_file_available(self, message: TCPMessage):
         """Handle file available notifications."""

@@ -6,10 +6,11 @@ Handles screen/application window capture and compression for screen sharing.
 import threading
 import time
 import logging
+import os
 import numpy as np
 from typing import Optional, Callable, Tuple
 from common.messages import TCPMessage, MessageType
-from common.platform_utils import PLATFORM_INFO, ErrorHandler, is_windows, is_linux
+from common.platform_utils import PLATFORM_INFO, ErrorHandler, is_windows, is_linux, is_macos
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -100,12 +101,23 @@ class ScreenCapture:
         self._check_capabilities()
     
     def _check_capabilities(self):
-        """Check platform-specific screen capture capabilities."""
+        """Check platform-specific screen capture capabilities and permissions."""
         self.platform = PLATFORM_INFO.system
-        self.capture_available = PLATFORM_INFO.get_capability('screen_capture') and SCREEN_CAPTURE_AVAILABLE
+        
+        # Perform comprehensive capability check
+        capability_result = self._check_platform_capabilities()
+        permission_result = self._check_screen_capture_permissions()
+        
+        self.capture_available = capability_result['available'] and permission_result['available']
+        self.capability_details = capability_result
+        self.permission_details = permission_result
         
         if not self.capture_available:
             logger.warning("Screen capture not available on this platform")
+            if not capability_result['available']:
+                logger.warning(f"Capability issue: {capability_result['message']}")
+            if not permission_result['available']:
+                logger.warning(f"Permission issue: {permission_result['message']}")
             return
         
         # Log platform-specific capabilities
@@ -115,6 +127,327 @@ class ScreenCapture:
             logger.info("Linux screen capture available (full screen only)")
         else:
             logger.info("Basic screen capture available")
+    
+    def _check_platform_capabilities(self) -> dict:
+        """
+        Check platform-specific screen capture capabilities.
+        
+        Returns:
+            dict: Capability check results with details
+        """
+        result = {
+            'available': False,
+            'message': '',
+            'dependencies': [],
+            'missing_dependencies': [],
+            'platform_specific': {}
+        }
+        
+        # Check basic dependencies
+        if not SCREEN_CAPTURE_AVAILABLE:
+            result['missing_dependencies'].append('pyautogui')
+            result['message'] = "PyAutoGUI not available - required for screen capture"
+            return result
+        
+        result['dependencies'].append('pyautogui')
+        
+        # Check platform-specific capabilities
+        if is_windows():
+            result['platform_specific'] = self._check_windows_capabilities()
+        elif is_linux():
+            result['platform_specific'] = self._check_linux_capabilities()
+        elif is_macos():
+            result['platform_specific'] = self._check_macos_capabilities()
+        else:
+            result['platform_specific'] = {'supported': False, 'message': 'Unsupported platform'}
+        
+        # Check if PIL/Pillow is available for image processing
+        try:
+            from PIL import Image
+            result['dependencies'].append('pillow')
+        except ImportError:
+            result['missing_dependencies'].append('pillow')
+        
+        # Check if OpenCV is available for advanced processing
+        if OPENCV_AVAILABLE:
+            result['dependencies'].append('opencv-python')
+        
+        # Overall availability
+        result['available'] = (
+            len(result['missing_dependencies']) == 0 and 
+            result['platform_specific'].get('supported', False)
+        )
+        
+        if result['available']:
+            result['message'] = "All screen capture capabilities available"
+        else:
+            missing = ', '.join(result['missing_dependencies'])
+            platform_msg = result['platform_specific'].get('message', '')
+            result['message'] = f"Missing dependencies: {missing}. {platform_msg}".strip()
+        
+        return result
+    
+    def _check_windows_capabilities(self) -> dict:
+        """Check Windows-specific screen capture capabilities."""
+        result = {'supported': True, 'features': [], 'issues': []}
+        
+        # Check for Windows-specific window capture
+        if WINDOWS_SPECIFIC_AVAILABLE:
+            result['features'].append('window_specific_capture')
+        else:
+            result['issues'].append('pygetwindow not available - window-specific capture disabled')
+        
+        # Check for PIL ImageGrab (Windows native)
+        try:
+            from PIL import ImageGrab
+            result['features'].append('pil_imagegrab')
+        except ImportError:
+            result['issues'].append('PIL ImageGrab not available')
+        
+        # Check display availability
+        try:
+            import pyautogui
+            screen_size = pyautogui.size()
+            if screen_size.width > 0 and screen_size.height > 0:
+                result['features'].append('display_available')
+            else:
+                result['issues'].append('No display detected')
+                result['supported'] = False
+        except Exception as e:
+            result['issues'].append(f'Display check failed: {e}')
+            result['supported'] = False
+        
+        result['message'] = f"Windows features: {result['features']}, Issues: {result['issues']}"
+        return result
+    
+    def _check_linux_capabilities(self) -> dict:
+        """Check Linux-specific screen capture capabilities."""
+        result = {'supported': True, 'features': [], 'issues': []}
+        
+        # Check X11 display
+        display = os.environ.get('DISPLAY')
+        if not display:
+            result['issues'].append('DISPLAY environment variable not set')
+            result['supported'] = False
+        else:
+            result['features'].append(f'x11_display_{display}')
+        
+        # Check for scrot command (Linux fallback)
+        try:
+            import subprocess
+            subprocess.run(['which', 'scrot'], capture_output=True, check=True)
+            result['features'].append('scrot_available')
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            result['issues'].append('scrot not available - install with: sudo apt-get install scrot')
+        
+        # Check for xvfb (headless support)
+        try:
+            import subprocess
+            subprocess.run(['which', 'xvfb-run'], capture_output=True, check=True)
+            result['features'].append('xvfb_available')
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            result['issues'].append('xvfb-run not available - install with: sudo apt-get install xvfb')
+        
+        result['message'] = f"Linux features: {result['features']}, Issues: {result['issues']}"
+        return result
+    
+    def _check_macos_capabilities(self) -> dict:
+        """Check macOS-specific screen capture capabilities."""
+        result = {'supported': True, 'features': [], 'issues': []}
+        
+        # Check for PIL ImageGrab (macOS support)
+        try:
+            from PIL import ImageGrab
+            result['features'].append('pil_imagegrab')
+        except ImportError:
+            result['issues'].append('PIL ImageGrab not available')
+        
+        # Check display availability
+        try:
+            import pyautogui
+            screen_size = pyautogui.size()
+            if screen_size.width > 0 and screen_size.height > 0:
+                result['features'].append('display_available')
+            else:
+                result['issues'].append('No display detected')
+                result['supported'] = False
+        except Exception as e:
+            result['issues'].append(f'Display check failed: {e}')
+            result['supported'] = False
+        
+        result['message'] = f"macOS features: {result['features']}, Issues: {result['issues']}"
+        return result
+    
+    def _check_screen_capture_permissions(self) -> dict:
+        """
+        Check screen capture permissions on the current platform.
+        
+        Returns:
+            dict: Permission check results with details
+        """
+        result = {
+            'available': False,
+            'message': '',
+            'permission_type': '',
+            'suggestions': []
+        }
+        
+        if is_windows():
+            result = self._check_windows_permissions()
+        elif is_linux():
+            result = self._check_linux_permissions()
+        elif is_macos():
+            result = self._check_macos_permissions()
+        else:
+            result['message'] = 'Permission check not implemented for this platform'
+            result['available'] = True  # Assume available for unknown platforms
+        
+        return result
+    
+    def _check_windows_permissions(self) -> dict:
+        """Check Windows screen capture permissions."""
+        result = {
+            'available': True,
+            'message': 'Windows screen capture permissions OK',
+            'permission_type': 'windows_screen_recording',
+            'suggestions': []
+        }
+        
+        try:
+            # Test actual screen capture to check permissions
+            import pyautogui
+            test_screenshot = pyautogui.screenshot()
+            
+            if test_screenshot is None or test_screenshot.size == (0, 0):
+                result['available'] = False
+                result['message'] = 'Screen capture permission denied or screen locked'
+                result['suggestions'] = [
+                    'Enable screen recording permissions in Windows Privacy Settings',
+                    'Go to Settings > Privacy > Screen recording and allow the application',
+                    'Ensure screen is not locked or in sleep mode',
+                    'Try running as administrator'
+                ]
+        
+        except PermissionError:
+            result['available'] = False
+            result['message'] = 'Screen capture access denied'
+            result['suggestions'] = [
+                'Run application as administrator',
+                'Check Windows Privacy Settings > Screen recording',
+                'Disable Windows Defender real-time protection temporarily'
+            ]
+        
+        except Exception as e:
+            if 'access' in str(e).lower() or 'permission' in str(e).lower():
+                result['available'] = False
+                result['message'] = f'Permission error: {e}'
+                result['suggestions'] = [
+                    'Check Windows Privacy Settings > Screen recording',
+                    'Run application as administrator'
+                ]
+        
+        return result
+    
+    def _check_linux_permissions(self) -> dict:
+        """Check Linux screen capture permissions."""
+        result = {
+            'available': True,
+            'message': 'Linux screen capture permissions OK',
+            'permission_type': 'x11_display_access',
+            'suggestions': []
+        }
+        
+        try:
+            # Check DISPLAY environment variable
+            display = os.environ.get('DISPLAY')
+            if not display:
+                result['available'] = False
+                result['message'] = 'DISPLAY environment variable not set'
+                result['suggestions'] = [
+                    'Set DISPLAY environment variable: export DISPLAY=:0',
+                    'Use xvfb-run for headless environments: xvfb-run -a python script.py',
+                    'Ensure X11 server is running'
+                ]
+                return result
+            
+            # Test actual screen capture
+            import pyautogui
+            test_screenshot = pyautogui.screenshot()
+            
+            if test_screenshot is None or test_screenshot.size == (0, 0):
+                result['available'] = False
+                result['message'] = 'Screen capture failed - permission or display issue'
+                result['suggestions'] = [
+                    'Add user to video group: sudo usermod -a -G video $USER',
+                    'Install required packages: sudo apt-get install python3-tk scrot',
+                    'Check X11 permissions: xhost +local:',
+                    'For headless: use xvfb-run'
+                ]
+        
+        except PermissionError:
+            result['available'] = False
+            result['message'] = 'Screen capture permission denied'
+            result['suggestions'] = [
+                'Add user to video group: sudo usermod -a -G video $USER',
+                'Run with sudo (not recommended for production)',
+                'Check X11 permissions: xhost +local:'
+            ]
+        
+        except Exception as e:
+            if 'display' in str(e).lower() or 'x11' in str(e).lower():
+                result['available'] = False
+                result['message'] = f'X11 display error: {e}'
+                result['suggestions'] = [
+                    'Ensure X11 server is running',
+                    'Set DISPLAY variable: export DISPLAY=:0',
+                    'Use xvfb-run for headless: xvfb-run -a python script.py'
+                ]
+        
+        return result
+    
+    def _check_macos_permissions(self) -> dict:
+        """Check macOS screen capture permissions."""
+        result = {
+            'available': True,
+            'message': 'macOS screen capture permissions OK',
+            'permission_type': 'macos_screen_recording',
+            'suggestions': []
+        }
+        
+        try:
+            # Test actual screen capture
+            import pyautogui
+            test_screenshot = pyautogui.screenshot()
+            
+            if test_screenshot is None or test_screenshot.size == (0, 0):
+                result['available'] = False
+                result['message'] = 'Screen capture permission denied'
+                result['suggestions'] = [
+                    'Enable screen recording permissions in System Preferences',
+                    'Go to System Preferences > Security & Privacy > Privacy > Screen Recording',
+                    'Add your application to the allowed list',
+                    'Restart the application after granting permissions'
+                ]
+        
+        except PermissionError:
+            result['available'] = False
+            result['message'] = 'Screen capture access denied'
+            result['suggestions'] = [
+                'Grant screen recording permissions in System Preferences',
+                'System Preferences > Security & Privacy > Privacy > Screen Recording',
+                'Click the lock to make changes and add your application'
+            ]
+        
+        except Exception as e:
+            if 'permission' in str(e).lower() or 'access' in str(e).lower():
+                result['available'] = False
+                result['message'] = f'Permission error: {e}'
+                result['suggestions'] = [
+                    'Check System Preferences > Security & Privacy > Privacy > Screen Recording',
+                    'Ensure application has screen recording permissions'
+                ]
+        
+        return result
     
     def set_frame_callback(self, callback: Callable[[np.ndarray], None]):
         """
@@ -145,29 +478,31 @@ class ScreenCapture:
         
         logger.info(f"Screen capture settings updated: {self.fps}fps, quality={self.compression_quality}")
     
-    def start_capture(self) -> bool:
+    def start_capture(self) -> tuple[bool, str]:
         """
-        Start screen capture.
+        Start screen capture with detailed error reporting.
         
         Returns:
-            bool: True if capture started successfully
+            tuple[bool, str]: (success, detailed_message)
         """
         logger.info("Starting screen capture...")
         
+        # Check platform availability first
         if not self.capture_available:
-            logger.error("Screen capture not available on this platform")
-            return False
+            error_msg = self._get_platform_unavailable_message()
+            logger.error(error_msg)
+            return False, error_msg
         
         if self.is_capturing:
             logger.warning("Screen capture already running")
-            return True
+            return True, "Screen capture already active"
         
         try:
-            # Test screen capture capability
-            test_screenshot = self._capture_screen()
-            if test_screenshot is None:
-                logger.error("Failed to capture test screenshot")
-                return False
+            # Test screen capture capability with detailed error reporting
+            test_result, test_message = self._test_screen_capture()
+            if not test_result:
+                logger.error(f"Screen capture test failed: {test_message}")
+                return False, test_message
             
             # Start capture thread
             self.is_capturing = True
@@ -180,12 +515,14 @@ class ScreenCapture:
             )
             self.capture_thread.start()
             
-            logger.info("Screen capture started")
-            return True
+            success_msg = "Screen capture started successfully"
+            logger.info(success_msg)
+            return True, success_msg
             
         except Exception as e:
-            logger.error(f"Failed to start screen capture: {e}")
-            return False
+            error_msg = self._get_detailed_error_message(e)
+            logger.error(f"Failed to start screen capture: {error_msg}")
+            return False, error_msg
     
     def stop_capture(self):
         """Stop screen capture."""
@@ -243,15 +580,38 @@ class ScreenCapture:
     
     def _capture_screen(self) -> Optional[np.ndarray]:
         """
-        Capture screen or specified region.
+        Capture screen or specified region with fallback options.
         
         Returns:
-            np.ndarray: Captured screen frame or None if capture failed
+            np.ndarray: Captured screen frame or None if all methods failed
         """
         if not SCREEN_CAPTURE_AVAILABLE:
             logger.error("Screen capture not available")
             return None
         
+        # Try primary method first
+        frame = self._capture_screen_primary()
+        if frame is not None:
+            return frame
+        
+        # Try fallback methods
+        logger.warning("Primary screen capture failed, trying fallback methods...")
+        
+        frame = self._capture_screen_fallback()
+        if frame is not None:
+            logger.info("Fallback screen capture successful")
+            return frame
+        
+        logger.error("All screen capture methods failed")
+        return None
+    
+    def _capture_screen_primary(self) -> Optional[np.ndarray]:
+        """
+        Primary screen capture method using pyautogui.
+        
+        Returns:
+            np.ndarray: Captured screen frame or None if failed
+        """
         try:
             if self.capture_region:
                 # Capture specific region
@@ -272,36 +632,178 @@ class ScreenCapture:
                 frame = frame_rgb
             
             # Resize if too large
-            height, width = frame.shape[:2]
-            if width > self.MAX_WIDTH or height > self.MAX_HEIGHT:
-                # Calculate scaling factor to fit within max dimensions
-                scale_w = self.MAX_WIDTH / width
-                scale_h = self.MAX_HEIGHT / height
-                scale = min(scale_w, scale_h)
-                
-                new_width = int(width * scale)
-                new_height = int(height * scale)
-                
-                if OPENCV_AVAILABLE:
-                    frame = cv2.resize(frame, (new_width, new_height))
-                else:
-                    # Fallback resize using PIL
-                    from PIL import Image
-                    pil_image = Image.fromarray(frame)
-                    pil_image = pil_image.resize((new_width, new_height), Image.LANCZOS)
-                    frame = np.array(pil_image)
-            
+            frame = self._resize_frame_if_needed(frame)
             return frame
             
         except Exception as e:
             error_msg = ErrorHandler.get_platform_specific_error_message(e)
             fix_suggestion = ErrorHandler.suggest_platform_fix(e)
             
-            logger.error(f"Error capturing screen: {error_msg}")
+            logger.warning(f"Primary screen capture failed: {error_msg}")
             if fix_suggestion:
                 logger.info(f"Suggested fix: {fix_suggestion}")
             
             return None
+    
+    def _capture_screen_fallback(self) -> Optional[np.ndarray]:
+        """
+        Fallback screen capture methods for different platforms.
+        
+        Returns:
+            np.ndarray: Captured screen frame or None if failed
+        """
+        # Try platform-specific fallback methods
+        if is_windows():
+            return self._capture_screen_windows_fallback()
+        elif is_linux():
+            return self._capture_screen_linux_fallback()
+        else:
+            return self._capture_screen_generic_fallback()
+    
+    def _capture_screen_windows_fallback(self) -> Optional[np.ndarray]:
+        """
+        Windows-specific fallback screen capture methods.
+        
+        Returns:
+            np.ndarray: Captured screen frame or None if failed
+        """
+        try:
+            # Try using PIL ImageGrab directly (Windows only)
+            from PIL import ImageGrab
+            
+            if self.capture_region:
+                x, y, width, height = self.capture_region
+                screenshot = ImageGrab.grab(bbox=(x, y, x + width, y + height))
+            else:
+                screenshot = ImageGrab.grab()
+            
+            if screenshot:
+                frame_rgb = np.array(screenshot)
+                if OPENCV_AVAILABLE:
+                    frame = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                else:
+                    frame = frame_rgb
+                
+                frame = self._resize_frame_if_needed(frame)
+                logger.info("Windows ImageGrab fallback successful")
+                return frame
+                
+        except Exception as e:
+            logger.warning(f"Windows ImageGrab fallback failed: {e}")
+        
+        return None
+    
+    def _capture_screen_linux_fallback(self) -> Optional[np.ndarray]:
+        """
+        Linux-specific fallback screen capture methods.
+        
+        Returns:
+            np.ndarray: Captured screen frame or None if failed
+        """
+        try:
+            # Try using scrot command line tool
+            import subprocess
+            import tempfile
+            import os
+            from PIL import Image
+            
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                tmp_path = tmp_file.name
+            
+            try:
+                # Use scrot to capture screen
+                if self.capture_region:
+                    x, y, width, height = self.capture_region
+                    cmd = ['scrot', '-a', f'{x},{y},{width},{height}', tmp_path]
+                else:
+                    cmd = ['scrot', tmp_path]
+                
+                result = subprocess.run(cmd, capture_output=True, timeout=5)
+                
+                if result.returncode == 0 and os.path.exists(tmp_path):
+                    # Load captured image
+                    screenshot = Image.open(tmp_path)
+                    frame_rgb = np.array(screenshot)
+                    
+                    if OPENCV_AVAILABLE:
+                        frame = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                    else:
+                        frame = frame_rgb
+                    
+                    frame = self._resize_frame_if_needed(frame)
+                    logger.info("Linux scrot fallback successful")
+                    return frame
+                    
+            finally:
+                # Clean up temporary file
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+                    
+        except Exception as e:
+            logger.warning(f"Linux scrot fallback failed: {e}")
+        
+        return None
+    
+    def _capture_screen_generic_fallback(self) -> Optional[np.ndarray]:
+        """
+        Generic fallback screen capture method.
+        
+        Returns:
+            np.ndarray: Captured screen frame or None if failed
+        """
+        try:
+            # Try using PIL ImageGrab (cross-platform but limited)
+            from PIL import ImageGrab
+            
+            # ImageGrab.grab() without bbox for full screen
+            screenshot = ImageGrab.grab()
+            
+            if screenshot:
+                frame_rgb = np.array(screenshot)
+                if OPENCV_AVAILABLE:
+                    frame = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                else:
+                    frame = frame_rgb
+                
+                frame = self._resize_frame_if_needed(frame)
+                logger.info("Generic PIL ImageGrab fallback successful")
+                return frame
+                
+        except Exception as e:
+            logger.warning(f"Generic fallback failed: {e}")
+        
+        return None
+    
+    def _resize_frame_if_needed(self, frame: np.ndarray) -> np.ndarray:
+        """
+        Resize frame if it exceeds maximum dimensions.
+        
+        Args:
+            frame: Input frame to resize
+            
+        Returns:
+            np.ndarray: Resized frame
+        """
+        height, width = frame.shape[:2]
+        if width > self.MAX_WIDTH or height > self.MAX_HEIGHT:
+            # Calculate scaling factor to fit within max dimensions
+            scale_w = self.MAX_WIDTH / width
+            scale_h = self.MAX_HEIGHT / height
+            scale = min(scale_w, scale_h)
+            
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            
+            if OPENCV_AVAILABLE:
+                frame = cv2.resize(frame, (new_width, new_height))
+            else:
+                # Fallback resize using PIL
+                from PIL import Image
+                pil_image = Image.fromarray(frame)
+                pil_image = pil_image.resize((new_width, new_height), Image.LANCZOS)
+                frame = np.array(pil_image)
+        
+        return frame
     
     def _process_frame(self, frame: np.ndarray):
         """
@@ -428,6 +930,77 @@ class ScreenCapture:
         except Exception as e:
             logger.error(f"Error sending screen frame: {e}")
     
+    def get_capability_info(self) -> dict:
+        """
+        Get detailed capability and permission information.
+        
+        Returns:
+            dict: Comprehensive capability and permission details
+        """
+        return {
+            'platform': self.platform,
+            'capture_available': self.capture_available,
+            'capabilities': getattr(self, 'capability_details', {}),
+            'permissions': getattr(self, 'permission_details', {}),
+            'dependencies': {
+                'pyautogui': SCREEN_CAPTURE_AVAILABLE,
+                'opencv': OPENCV_AVAILABLE,
+                'windows_specific': WINDOWS_SPECIFIC_AVAILABLE if is_windows() else None
+            }
+        }
+    
+    def get_setup_instructions(self) -> list:
+        """
+        Get platform-specific setup instructions for screen capture.
+        
+        Returns:
+            list: List of setup instruction strings
+        """
+        instructions = []
+        
+        if self.capture_available:
+            instructions.append("✓ Screen capture is ready to use")
+            return instructions
+        
+        # Add capability-specific instructions
+        if hasattr(self, 'capability_details') and not self.capability_details['available']:
+            missing_deps = self.capability_details.get('missing_dependencies', [])
+            if missing_deps:
+                deps_str = ' '.join(missing_deps)
+                instructions.append(f"Install missing dependencies: pip install {deps_str}")
+        
+        # Add permission-specific instructions
+        if hasattr(self, 'permission_details') and not self.permission_details['available']:
+            suggestions = self.permission_details.get('suggestions', [])
+            for suggestion in suggestions:
+                instructions.append(f"• {suggestion}")
+        
+        # Add platform-specific instructions
+        if is_windows():
+            instructions.extend([
+                "Windows Setup:",
+                "• Install dependencies: pip install pyautogui pygetwindow pillow",
+                "• Enable screen recording in Privacy Settings",
+                "• Run as administrator if needed"
+            ])
+        elif is_linux():
+            instructions.extend([
+                "Linux Setup:",
+                "• Install system packages: sudo apt-get install python3-tk scrot xvfb",
+                "• Install Python packages: pip install pyautogui pillow",
+                "• Add user to video group: sudo usermod -a -G video $USER",
+                "• Set DISPLAY variable: export DISPLAY=:0"
+            ])
+        elif is_macos():
+            instructions.extend([
+                "macOS Setup:",
+                "• Install dependencies: pip install pyautogui pillow",
+                "• Grant screen recording permissions in System Preferences",
+                "• System Preferences > Security & Privacy > Privacy > Screen Recording"
+            ])
+        
+        return instructions
+    
     def get_capture_stats(self) -> dict:
         """
         Get screen capture statistics.
@@ -454,6 +1027,113 @@ class ScreenCapture:
                     stats['actual_fps'] = stats['frames_captured'] / stats['capture_duration']
             
             return stats
+    
+    def _get_platform_unavailable_message(self) -> str:
+        """
+        Get detailed message for platform unavailability.
+        
+        Returns:
+            str: Detailed error message with platform-specific suggestions
+        """
+        if not SCREEN_CAPTURE_AVAILABLE:
+            if is_windows():
+                return ("Screen capture not available. Please install required dependencies: "
+                       "pip install pyautogui pygetwindow pillow")
+            elif is_linux():
+                return ("Screen capture not available. Please install required dependencies: "
+                       "pip install pyautogui pillow. On Linux, you may also need: "
+                       "sudo apt-get install python3-tk python3-dev scrot")
+            else:
+                return ("Screen capture not available. Please install required dependencies: "
+                       "pip install pyautogui pillow")
+        
+        return f"Screen capture not supported on {self.platform}"
+    
+    def _test_screen_capture(self) -> tuple[bool, str]:
+        """
+        Test screen capture capability with detailed error reporting.
+        
+        Returns:
+            tuple[bool, str]: (success, detailed_message)
+        """
+        try:
+            # Test basic screen capture
+            test_screenshot = self._capture_screen()
+            if test_screenshot is None:
+                return False, "Failed to capture test screenshot - check screen capture permissions"
+            
+            # Test image processing
+            if test_screenshot.size == 0:
+                return False, "Captured empty screenshot - screen may be locked or unavailable"
+            
+            # Test compression capability
+            compressed = self._compress_frame(test_screenshot)
+            if compressed is None:
+                return False, "Failed to compress test screenshot - image processing error"
+            
+            return True, "Screen capture test successful"
+            
+        except PermissionError:
+            if is_windows():
+                return False, ("Screen capture permission denied. Please enable screen recording "
+                             "permissions in Windows Privacy Settings > Screen recording")
+            elif is_linux():
+                return False, ("Screen capture permission denied. Please run with appropriate "
+                             "permissions or install xvfb-run for headless environments")
+            else:
+                return False, "Screen capture permission denied. Please check system permissions"
+        
+        except ImportError as e:
+            missing_module = str(e).split("'")[1] if "'" in str(e) else "unknown"
+            return False, f"Missing required module: {missing_module}. Please install with: pip install {missing_module}"
+        
+        except Exception as e:
+            return False, self._get_detailed_error_message(e)
+    
+    def _get_detailed_error_message(self, error: Exception) -> str:
+        """
+        Get detailed error message with platform-specific suggestions.
+        
+        Args:
+            error: Exception that occurred
+            
+        Returns:
+            str: Detailed error message with suggestions
+        """
+        error_type = type(error).__name__
+        error_msg = str(error).lower()
+        
+        # Platform-specific error handling
+        if is_windows():
+            if "access denied" in error_msg or "permission" in error_msg:
+                return ("Screen capture access denied. Please run as administrator or enable "
+                       "screen recording permissions in Windows Privacy Settings")
+            elif "display" in error_msg or "screen" in error_msg:
+                return ("Screen display error. Please check if screen is available and not locked")
+            elif "module" in error_msg or "import" in error_msg:
+                return ("Missing dependencies. Please install: pip install pyautogui pygetwindow pillow")
+        
+        elif is_linux():
+            if "permission denied" in error_msg:
+                return ("Permission denied. Please run with sudo or add user to video group: "
+                       "sudo usermod -a -G video $USER")
+            elif "display" in error_msg or "x11" in error_msg:
+                return ("X11 display error. Please ensure DISPLAY is set or use xvfb-run for headless mode")
+            elif "module" in error_msg or "import" in error_msg:
+                return ("Missing dependencies. Please install: sudo apt-get install python3-tk scrot && "
+                       "pip install pyautogui pillow")
+        
+        else:  # macOS or other
+            if "permission" in error_msg:
+                return ("Screen capture permission denied. Please enable screen recording permissions "
+                       "in System Preferences > Security & Privacy > Privacy > Screen Recording")
+        
+        # Generic error with suggestion
+        suggestion = ErrorHandler.suggest_platform_fix(error)
+        if suggestion:
+            return f"{error_type}: {error}. Suggestion: {suggestion}"
+        
+        return f"{error_type}: {error}"
     
     def get_available_windows(self) -> list:
         """
