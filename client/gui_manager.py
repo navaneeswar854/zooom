@@ -283,8 +283,7 @@ class VideoFrame(ModuleFrame):
                 if 0 in self.video_slots:
                     slot = self.video_slots[0]
                     if 'label' in slot and self._widget_exists(slot['label']):
-                        slot['label'].config(text="Local Video
-Error", fg='red')
+                        slot['label'].config(text="Local Video\nError", fg='red')
             except:
                 pass  # Ignore errors when showing error message
     def update_remote_video(self, client_id: str, frame):
