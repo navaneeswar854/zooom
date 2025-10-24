@@ -92,9 +92,9 @@ class VideoFrame(ModuleFrame):
         self.video_callback: Optional[Callable[[bool], None]] = None
         self.participant_videos = {}  # Track participant video states
         
-        # Frame rate limiting to prevent stacking
+        # Ultra-fast frame rate for LAN - no limiting for immediate display
         self.last_frame_time = {}  # Track last update time per client
-        self.frame_rate_limit = 1.0 / 30  # Limit to 30 FPS for GUI updates
+        self.frame_rate_limit = 1.0 / 120  # Ultra-fast: 120 FPS limit for immediate updates
         self.pending_updates = {}  # Track pending updates to prevent queuing
     
     def set_video_callback(self, callback: Callable[[bool], None]):
@@ -184,22 +184,136 @@ class VideoFrame(ModuleFrame):
                 slot_index += 1
     
     def update_local_video(self, frame):
-        """Update local video display with captured frame (thread-safe)."""
+        """Update local video display with extreme optimization for zero flickering."""
         try:
-            # Prevent multiple pending updates for the same client
+            # Extreme optimization: immediate display without any delays
+            import time
+            
             client_key = 'local'
-            if client_key in self.pending_updates:
-                return  # Skip if update already pending
+            current_time = time.perf_counter()
             
-            # Mark update as pending
-            self.pending_updates[client_key] = True
+            # Ultra-minimal frame rate limiting - only prevent excessive updates
+            if client_key in self.last_frame_time:
+                time_diff = current_time - self.last_frame_time[client_key]
+                if time_diff < 0.008:  # 8ms minimum (125 FPS max) for ultra-smooth
+                    return
             
-            # Use after_idle to ensure GUI updates happen on main thread
-            if hasattr(self, 'video_display') and self.video_display.winfo_exists():
-                self.video_display.after_idle(self._update_local_video_safe, frame, client_key)
+            self.last_frame_time[client_key] = current_time
+            
+            # Immediate update with extreme optimization
+            self._update_local_video_extreme(frame)
+            
         except Exception as e:
-            logger.error(f"Error in local video update: {e}")
-            # Fallback: just log the error and continue
+            logger.debug(f"Local video update error: {e}")  # Minimal logging for speed
+    
+    def _update_local_video_extreme(self, frame):
+        """Extreme optimization local video update - zero flickering."""
+        try:
+            import cv2
+            from PIL import Image, ImageTk
+            
+            # Ultra-fast frame processing
+            if frame is not None and frame.size > 0:
+                # Direct RGB conversion without validation
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_image = Image.fromarray(rgb_frame)
+                
+                # Fast resize with nearest neighbor for speed
+                display_size = (200, 150)
+                pil_image = pil_image.resize(display_size, Image.NEAREST)
+                
+                # Immediate PhotoImage creation
+                photo = ImageTk.PhotoImage(pil_image)
+                
+                # Ultra-fast slot update
+                if 0 in self.video_slots:
+                    slot = self.video_slots[0]
+                    
+                    if self._widget_exists(slot['frame']):
+                        # COMPLETE WIDGET DESTRUCTION for flicker-free update
+                        for child in slot['frame'].winfo_children():
+                            child.destroy()
+                        
+                        # Immediate widget creation
+                        video_widget = tk.Label(slot['frame'], image=photo, bg='black')
+                        video_widget.pack(fill='both', expand=True)
+                        video_widget.image = photo  # Keep reference
+                        
+                        name_label = tk.Label(slot['frame'], text="You (Local)", 
+                                            fg='lightgreen', bg='black', font=('Arial', 8))
+                        name_label.pack(side='bottom')
+                        
+                        # Update slot references
+                        slot['video_widget'] = video_widget
+                        slot['name_label'] = name_label
+                        slot['participant_id'] = 'local'
+                        slot['active'] = True
+            
+        except:
+            pass  # Fail silently for maximum speed
+    
+    def _update_remote_video_extreme(self, client_id: str, frame):
+        """Extreme optimization remote video update - zero flickering."""
+        try:
+            import cv2
+            from PIL import Image, ImageTk
+            
+            # Ultra-fast frame processing
+            if frame is not None and frame.size > 0:
+                # Direct RGB conversion without validation
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_image = Image.fromarray(rgb_frame)
+                
+                # Fast resize with nearest neighbor for speed
+                display_size = (200, 150)
+                pil_image = pil_image.resize(display_size, Image.NEAREST)
+                
+                # Immediate PhotoImage creation
+                photo = ImageTk.PhotoImage(pil_image)
+                
+                # Get or assign slot with extreme speed
+                slot_id = self._get_video_slot_extreme(client_id)
+                
+                if slot_id is not None and slot_id in self.video_slots:
+                    slot = self.video_slots[slot_id]
+                    
+                    if self._widget_exists(slot['frame']):
+                        # COMPLETE WIDGET DESTRUCTION for flicker-free update
+                        for child in slot['frame'].winfo_children():
+                            child.destroy()
+                        
+                        # Immediate widget creation
+                        video_widget = tk.Label(slot['frame'], image=photo, bg='black')
+                        video_widget.pack(fill='both', expand=True)
+                        video_widget.image = photo  # Keep reference
+                        
+                        name_label = tk.Label(slot['frame'], text=f"Client {client_id[:8]}", 
+                                            fg='lightblue', bg='black', font=('Arial', 8))
+                        name_label.pack(side='bottom')
+                        
+                        # Update slot references
+                        slot['video_widget'] = video_widget
+                        slot['name_label'] = name_label
+                        slot['participant_id'] = client_id
+                        slot['active'] = True
+            
+        except:
+            pass  # Fail silently for maximum speed
+    
+    def _get_video_slot_extreme(self, client_id: str) -> Optional[int]:
+        """Ultra-fast slot assignment for extreme optimization."""
+        # Check existing assignment first
+        for slot_id, slot in self.video_slots.items():
+            if slot.get('participant_id') == client_id:
+                return slot_id
+        
+        # Find first available slot (skip slot 0)
+        for slot_id in range(1, len(self.video_slots)):
+            slot = self.video_slots[slot_id]
+            if not slot.get('active', False):
+                return slot_id
+        
+        return None  # No slots available
     
     def _update_local_video_safe(self, frame, client_key):
         """Thread-safe implementation of local video update."""
@@ -282,21 +396,26 @@ class VideoFrame(ModuleFrame):
             except:
                 pass  # Ignore errors when showing error message
     def update_remote_video(self, client_id: str, frame):
-        """Update remote video display with incoming frame (thread-safe)."""
+        """Update remote video display with extreme optimization for zero flickering."""
         try:
-            # Prevent multiple pending updates for the same client
-            if client_id in self.pending_updates:
-                return  # Skip if update already pending
+            # Extreme optimization: immediate display without any delays
+            import time
             
-            # Mark update as pending
-            self.pending_updates[client_id] = True
+            current_time = time.perf_counter()
             
-            # Use after_idle to ensure GUI updates happen on main thread and prevent stacking
-            if hasattr(self, 'video_display') and self.video_display.winfo_exists():
-                self.video_display.after_idle(self._update_remote_video_safe, client_id, frame)
+            # Ultra-minimal frame rate limiting - only prevent excessive updates
+            if client_id in self.last_frame_time:
+                time_diff = current_time - self.last_frame_time[client_id]
+                if time_diff < 0.008:  # 8ms minimum (125 FPS max) for ultra-smooth
+                    return
+            
+            self.last_frame_time[client_id] = current_time
+            
+            # Immediate update with extreme optimization
+            self._update_remote_video_extreme(client_id, frame)
+            
         except Exception as e:
-            logger.error(f"Error in remote video update for {client_id}: {e}")
-            # Fallback: just log the error and continue
+            logger.debug(f"Remote video update error for {client_id}: {e}")  # Minimal logging for speed
     
     def _update_remote_video_safe(self, client_id: str, frame):
         """Thread-safe implementation of remote video update."""

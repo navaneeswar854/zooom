@@ -12,6 +12,7 @@ import numpy as np
 from collections import deque
 from common.messages import UDPPacket
 from client.video_optimization import video_optimizer
+from client.extreme_video_optimizer import extreme_video_optimizer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -123,7 +124,69 @@ class VideoRenderer:
     
     def process_video_packet(self, video_packet: UDPPacket):
         """
-        Process incoming video packet with optimization and buffering.
+        Process incoming video packet with extreme optimization for zero latency.
+        
+        Args:
+            video_packet: UDP packet containing compressed video data
+        """
+        if not self.is_rendering:
+            return
+        
+        try:
+            client_id = video_packet.sender_id
+            
+            # Initialize stream if new with extreme optimization
+            with self._lock:
+                if client_id not in self.video_streams:
+                    self.video_streams[client_id] = {
+                        'last_packet_time': time.perf_counter(),
+                        'packets_received': 0,
+                        'frames_decoded': 0,
+                        'active': True
+                    }
+                    
+                    # Register for extreme optimization
+                    extreme_video_optimizer.register_client_display(
+                        client_id, 
+                        lambda frame: self._extreme_display_callback(client_id, frame)
+                    )
+                    
+                    logger.info(f"Added extreme optimized video stream for client {client_id}")
+                    
+                    # Notify stream status callback
+                    if self.stream_status_callback:
+                        self.stream_status_callback(client_id, True)
+                
+                # Update minimal statistics
+                self.video_streams[client_id]['packets_received'] += 1
+                self.video_streams[client_id]['last_packet_time'] = time.perf_counter()
+                self.stats['total_frames_received'] += 1
+            
+            # Process with extreme optimization - immediate display
+            extreme_video_optimizer.process_video_packet_extreme(client_id, video_packet.data)
+            
+        except Exception as e:
+            self.stats['decode_errors'] += 1
+    
+    def _extreme_display_callback(self, client_id: str, frame: np.ndarray):
+        """Extreme optimization display callback."""
+        try:
+            # Immediate frame update callback
+            if self.frame_update_callback:
+                self.frame_update_callback(client_id, frame)
+            
+            # Update statistics
+            with self._lock:
+                if client_id in self.video_streams:
+                    self.video_streams[client_id]['frames_decoded'] += 1
+                self.stats['total_frames_rendered'] += 1
+                
+        except Exception as e:
+            logger.debug(f"Extreme display callback error: {e}")
+    
+    def process_video_packet_standard(self, video_packet: UDPPacket):
+        """
+        Process incoming video packet with standard optimization and buffering.
         
         Args:
             video_packet: UDP packet containing compressed video data
@@ -215,10 +278,16 @@ class VideoRenderer:
                 with self._lock:
                     stream_info['frames_decoded'] += 1
                 
-                # Use optimized frame retrieval for callback
-                optimized_frame = video_optimizer.get_frame(client_id)
-                if optimized_frame is not None and self.frame_update_callback:
-                    self.frame_update_callback(client_id, optimized_frame)
+                # Ultra-fast mode: immediate display without buffering for LAN
+                if self.frame_update_callback:
+                    # Direct callback with original frame for zero-latency display
+                    self.frame_update_callback(client_id, frame)
+                
+                # Also add to optimizer buffer for statistics (but don't wait for it)
+                try:
+                    optimized_frame = video_optimizer.get_frame(client_id)
+                except:
+                    pass  # Ignore optimizer delays
             
         except Exception as e:
             logger.error(f"Error processing video packet: {e}")
@@ -263,8 +332,8 @@ class VideoRenderer:
                 # Clean up inactive streams
                 self._cleanup_inactive_streams()
                 
-                # Sleep to maintain 30 FPS rendering
-                time.sleep(1.0 / 30)  # 30 FPS for smooth playback
+                # Ultra-fast rendering with minimal delay
+                time.sleep(1.0 / 120)  # 120 FPS for ultra-smooth, immediate playback
                 
             except Exception as e:
                 if self.is_rendering:
@@ -335,10 +404,11 @@ class VideoRenderer:
         """
         with self._lock:
             if client_id in self.video_streams:
-                logger.info(f"Removing optimized video stream for client {client_id}")
+                logger.info(f"Removing extreme optimized video stream for client {client_id}")
                 
-                # Unregister from optimizer
+                # Unregister from both optimizers
                 video_optimizer.unregister_client(client_id)
+                extreme_video_optimizer.unregister_client(client_id)
                 
                 # Notify stream status callback
                 if self.stream_status_callback:

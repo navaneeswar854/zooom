@@ -216,6 +216,10 @@ class CollaborationClient:
                     )
                     
                     # Start video system for receiving video
+            # Enable extreme video optimization
+            extreme_video_optimizer.start_optimization()
+            extreme_video_optimizer.enable_ultra_fast_mode()
+            extreme_video_optimizer.enable_anti_flicker_mode()
                     self.video_manager.start_video_system()
                     
                     logger.info("Video system initialized")

@@ -123,19 +123,22 @@ class FrameBuffer:
     Advanced frame buffer with jitter compensation and smooth playback.
     """
     
-    def __init__(self, client_id: str, target_buffer_size: int = 3):
+    def __init__(self, client_id: str, target_buffer_size: int = 1):  # Ultra-low latency: 1 frame buffer
         self.client_id = client_id
         self.target_buffer_size = target_buffer_size
-        self.max_buffer_size = target_buffer_size * 2
+        self.max_buffer_size = max(target_buffer_size * 2, 2)  # Minimum 2 frames
+        
+        # Ultra-low latency mode for LAN
+        self.ultra_low_latency = True  # Enable for LAN networks
         
         # Frame storage
         self.frames: Deque[Dict] = deque(maxlen=self.max_buffer_size)
         self.lock = threading.RLock()
         
-        # Timing and synchronization
+        # Timing and synchronization - optimized for immediate display
         self.last_frame_time = 0
-        self.frame_interval = 1.0 / 30  # Target 30 FPS
-        self.jitter_buffer = deque(maxlen=10)
+        self.frame_interval = 1.0 / 60  # Target 60 FPS for ultra-smooth
+        self.jitter_buffer = deque(maxlen=5)  # Smaller jitter buffer
         
         # Statistics
         self.stats = {
@@ -184,17 +187,25 @@ class FrameBuffer:
             return True
     
     def get_frame(self) -> Optional[np.ndarray]:
-        """Get next frame for playback with smooth timing."""
+        """Get next frame for playback with ultra-low latency."""
         with self.lock:
-            if len(self.frames) < self.target_buffer_size:
-                # Buffer underrun - wait for more frames
-                if len(self.frames) == 0:
-                    self.stats['buffer_underruns'] += 1
+            if self.ultra_low_latency:
+                # Ultra-low latency mode: return immediately if any frame available
+                if len(self.frames) > 0:
+                    frame_info = self.frames.popleft()
+                    return frame_info['data']
                 return None
-            
-            # Get oldest frame
-            frame_info = self.frames.popleft()
-            return frame_info['data']
+            else:
+                # Standard buffering mode
+                if len(self.frames) < self.target_buffer_size:
+                    # Buffer underrun - wait for more frames
+                    if len(self.frames) == 0:
+                        self.stats['buffer_underruns'] += 1
+                    return None
+                
+                # Get oldest frame
+                frame_info = self.frames.popleft()
+                return frame_info['data']
     
     def get_buffer_health(self) -> Dict:
         """Get buffer health metrics."""

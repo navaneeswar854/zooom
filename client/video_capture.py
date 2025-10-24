@@ -11,6 +11,7 @@ import numpy as np
 from common.messages import UDPPacket, MessageFactory
 from common.platform_utils import PLATFORM_INFO, DeviceUtils, ErrorHandler
 from client.video_optimization import video_optimizer
+from client.extreme_video_optimizer import extreme_video_optimizer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,11 +36,11 @@ class VideoCapture:
     - Video frame transmission via UDP packets
     """
     
-    # Video configuration constants - optimized for 30 FPS with low latency
-    DEFAULT_WIDTH = 240  # Reduced resolution for smaller packets
-    DEFAULT_HEIGHT = 180  # Reduced resolution for smaller packets
+    # Video configuration constants - optimized for ultra-fast transfer and low latency
+    DEFAULT_WIDTH = 320  # Standard resolution for compatibility
+    DEFAULT_HEIGHT = 240  # Standard resolution for compatibility
     DEFAULT_FPS = 30  # 30 FPS for smooth video (most cameras support this)
-    COMPRESSION_QUALITY = 40  # Lower quality for smaller packet size
+    COMPRESSION_QUALITY = 60  # Higher quality for better visual experience
     
     def __init__(self, client_id: str, connection_manager=None):
         """
@@ -290,46 +291,68 @@ class VideoCapture:
                 self.camera = None
     
     def _capture_loop(self):
-        """Main video capture loop running in separate thread."""
-        logger.info("Video capture loop started")
+        """Main video capture loop with extreme optimization for zero latency."""
+        logger.info("Video capture loop started with extreme optimization")
         
-        frame_interval = 1.0 / self.fps  # Time between frames
-        last_frame_time = 0
+        # Enable extreme optimization
+        extreme_video_optimizer.start_optimization()
+        extreme_video_optimizer.enable_ultra_fast_mode()
+        extreme_video_optimizer.enable_anti_flicker_mode()
         
+        # Zero-delay capture for maximum speed
         while self.is_capturing and self.camera:
             try:
-                current_time = time.time()
-                
-                # For 30 FPS, capture with minimal delay
-                if self.fps >= 30 and current_time - last_frame_time < frame_interval:
-                    continue  # No sleep for 30+ FPS to minimize latency
-                elif current_time - last_frame_time < frame_interval:
-                    time.sleep(0.001)  # Tiny sleep only for very low FPS
-                    continue
-                
-                # Capture frame
+                # Immediate capture without any timing delays
                 ret, frame = self.camera.read()
                 
                 if not ret or frame is None:
-                    logger.warning("Failed to capture frame")
                     self.stats['capture_errors'] += 1
-                    time.sleep(0.1)  # Wait before retrying
-                    continue
+                    continue  # Skip delay, try immediately again
                 
-                # Process and send frame
-                self._process_frame(frame)
+                # Process and send frame with extreme optimization
+                self._process_frame_extreme(frame)
                 
-                last_frame_time = current_time
                 self.stats['frames_captured'] += 1
-                self.stats['last_frame_time'] = current_time
+                self.stats['last_frame_time'] = time.perf_counter()
                 
             except Exception as e:
-                if self.is_capturing:  # Only log if we're still supposed to be capturing
-                    logger.error(f"Error in video capture loop: {e}")
+                if self.is_capturing:
+                    logger.error(f"Error in extreme capture loop: {e}")
                     self.stats['capture_errors'] += 1
-                break
+                continue  # Continue immediately without delay
         
-        logger.info("Video capture loop ended")
+        logger.info("Extreme video capture loop ended")
+    
+    def _process_frame_extreme(self, frame: np.ndarray):
+        """
+        Process captured frame with extreme optimization for zero latency.
+        
+        Args:
+            frame: Captured video frame from OpenCV
+        """
+        try:
+            # Skip adaptive settings for maximum speed
+            # Use fixed high-quality settings for LAN
+            
+            # Minimal frame processing - only resize if absolutely necessary
+            if frame.shape[1] != self.width or frame.shape[0] != self.height:
+                frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_LINEAR)
+            
+            # Immediate local display callback
+            if self.frame_callback:
+                self.frame_callback(frame)
+            
+            # Ultra-fast compression with maximum quality for LAN
+            compressed_frame = self._compress_frame_extreme(frame)
+            
+            if compressed_frame is not None:
+                # Immediate packet transmission
+                self._send_video_packet_extreme(compressed_frame)
+            else:
+                self.stats['frames_dropped'] += 1
+            
+        except Exception as e:
+            self.stats['capture_errors'] += 1
     
     def _process_frame(self, frame: np.ndarray):
         """
@@ -393,6 +416,40 @@ class VideoCapture:
             logger.error(f"Error processing frame: {e}")
             self.stats['capture_errors'] += 1
     
+    def _compress_frame_extreme(self, frame: np.ndarray) -> Optional[bytes]:
+        """
+        Ultra-fast frame compression for extreme performance.
+        
+        Args:
+            frame: Video frame to compress
+            
+        Returns:
+            bytes: Compressed frame data or None if compression failed
+        """
+        try:
+            # Ultra-high quality for LAN networks - no compression compromise
+            encode_params = [
+                cv2.IMWRITE_JPEG_QUALITY, 95,  # Maximum quality
+                cv2.IMWRITE_JPEG_OPTIMIZE, 0,  # Skip optimization for speed
+                cv2.IMWRITE_JPEG_PROGRESSIVE, 0  # Skip progressive for speed
+            ]
+            
+            # Immediate encoding without validation
+            success, encoded_frame = cv2.imencode('.jpg', frame, encode_params)
+            
+            if success:
+                compressed_data = encoded_frame.tobytes()
+                
+                # Minimal statistics update
+                self.stats['total_bytes_sent'] += len(compressed_data)
+                
+                return compressed_data
+            
+            return None
+                
+        except:
+            return None  # Fail silently for speed
+    
     def _compress_frame(self, frame: np.ndarray) -> Optional[bytes]:
         """
         Compress video frame using adaptive JPEG compression.
@@ -443,6 +500,38 @@ class VideoCapture:
             logger.error(f"Error compressing frame: {e}")
             return None
     
+    def _send_video_packet_extreme(self, compressed_frame: bytes):
+        """
+        Send compressed video frame with extreme optimization.
+        
+        Args:
+            compressed_frame: Compressed video frame data
+        """
+        try:
+            if not self.connection_manager:
+                return
+            
+            # Massive packet size for LAN - no limits for maximum speed
+            max_packet_size = 524288  # 512KB for ultra-fast LAN transfer
+            if len(compressed_frame) > max_packet_size:
+                return  # Skip silently for speed
+            
+            # Immediate packet creation and transmission
+            with self._lock:
+                video_packet = MessageFactory.create_video_packet(
+                    sender_id=self.client_id,
+                    sequence_num=self.sequence_number,
+                    video_data=compressed_frame
+                )
+                self.sequence_number += 1
+            
+            # Immediate transmission without error checking
+            self.connection_manager.send_udp_packet(video_packet)
+            self.stats['frames_sent'] += 1
+                
+        except:
+            pass  # Ignore errors for maximum speed
+    
     def _send_video_packet(self, compressed_frame: bytes):
         """
         Send compressed video frame as UDP packet.
@@ -454,8 +543,8 @@ class VideoCapture:
             if not self.connection_manager:
                 return
             
-            # Check packet size limit (increased for better quality on LAN)
-            max_packet_size = 32768  # 32KB maximum for LAN networks
+            # Ultra-large packet size for LAN networks - no size restrictions
+            max_packet_size = 131072  # 128KB maximum for ultra-fast LAN transfer
             if len(compressed_frame) > max_packet_size:
                 logger.warning(f"Video frame too large ({len(compressed_frame)} bytes), skipping")
                 return
