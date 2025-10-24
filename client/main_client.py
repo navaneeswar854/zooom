@@ -959,22 +959,42 @@ class CollaborationClient:
     def _on_video_frame_captured(self, frame):
         """Handle captured video frame for local display."""
         try:
+            # Validate frame
+            if frame is None:
+                logger.warning("Received None frame from video capture")
+                return
+            
             # Update GUI with local video frame
             if hasattr(self.gui_manager, 'video_frame') and self.gui_manager.video_frame:
                 self.gui_manager.video_frame.update_local_video(frame)
+                logger.debug("Local video frame sent to GUI")
+            else:
+                logger.warning("GUI video frame not available for local video display")
         
         except Exception as e:
-            logger.error(f"Error handling video frame: {e}")
+            logger.error(f"Error handling local video frame: {e}")
     
     def _on_incoming_video_frame(self, client_id: str, frame):
         """Handle incoming video frame from other participants."""
         try:
+            # Validate frame and client_id
+            if not client_id:
+                logger.warning("Received video frame with empty client_id")
+                return
+            
+            if frame is None:
+                logger.warning(f"Received None frame from client {client_id}")
+                return
+            
             # Update GUI with incoming video frame
             if hasattr(self.gui_manager, 'video_frame') and self.gui_manager.video_frame:
                 self.gui_manager.video_frame.update_remote_video(client_id, frame)
+                logger.debug(f"Remote video frame from {client_id} sent to GUI")
+            else:
+                logger.warning("GUI video frame not available for remote video display")
         
         except Exception as e:
-            logger.error(f"Error handling incoming video frame: {e}")
+            logger.error(f"Error handling incoming video frame from {client_id}: {e}")
     
     def _on_video_stream_status_change(self, client_id: str, active: bool):
         """Handle video stream status changes."""

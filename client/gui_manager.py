@@ -116,19 +116,20 @@ class VideoFrame(ModuleFrame):
             slot_frame.grid(row=row, column=col, sticky='nsew', padx=2, pady=2)
             
             # Placeholder content
+            slot_text = "Your Video\n(Enable video)" if i == 0 else f"Video Slot {i+1}\nNo participant"
             placeholder_label = tk.Label(
                 slot_frame, 
-                text=f"Video Slot {i+1}\nNo participant", 
-                fg='white', 
+                text=slot_text, 
+                fg='lightgreen' if i == 0 else 'white', 
                 bg='black',
-                font=('Arial', 12)
+                font=('Arial', 10)
             )
             placeholder_label.pack(expand=True)
             
             self.video_slots[i] = {
                 'frame': slot_frame,
                 'label': placeholder_label,
-                'participant_id': None,
+                'participant_id': 'local' if i == 0 else None,
                 'active': False
             }
     
@@ -169,27 +170,146 @@ class VideoFrame(ModuleFrame):
     def update_local_video(self, frame):
         """Update local video display with captured frame."""
         try:
-            # This is a placeholder for local video display
-            # In a full implementation, you would convert the OpenCV frame
-            # to a format suitable for tkinter display (PIL Image -> PhotoImage)
-            # For now, we'll just indicate that video is active
-            pass
+            import cv2
+            from PIL import Image, ImageTk
+            import io
+            
+            # Convert OpenCV frame (BGR) to RGB
+            if frame is not None and frame.size > 0:
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                
+                # Convert to PIL Image
+                pil_image = Image.fromarray(rgb_frame)
+                
+                # Resize to fit in video slot (maintain aspect ratio)
+                display_size = (160, 120)  # Small size for grid layout
+                pil_image.thumbnail(display_size, Image.LANCZOS)
+                
+                # Convert to PhotoImage for tkinter
+                photo = ImageTk.PhotoImage(pil_image)
+                
+                # Update the first video slot with local video
+                if 0 in self.video_slots:
+                    slot = self.video_slots[0]
+                    
+                    # Remove text label and add video display
+                    if hasattr(slot, 'video_label'):
+                        slot['video_label'].destroy()
+                    
+                    if not hasattr(slot, 'video_canvas'):
+                        slot['video_canvas'] = tk.Canvas(
+                            slot['frame'], 
+                            width=display_size[0], 
+                            height=display_size[1],
+                            bg='black'
+                        )
+                        slot['video_canvas'].pack(expand=True)
+                    
+                    # Clear canvas and display new frame
+                    slot['video_canvas'].delete("all")
+                    slot['video_canvas'].create_image(
+                        display_size[0]//2, display_size[1]//2, 
+                        anchor='center', 
+                        image=photo
+                    )
+                    
+                    # Keep reference to prevent garbage collection
+                    slot['video_canvas'].image = photo
+                    
+                    # Update slot info
+                    slot['participant_id'] = 'local'
+                    slot['active'] = True
+                    
+                    # Add "You" label
+                    if not hasattr(slot, 'name_label'):
+                        slot['name_label'] = tk.Label(
+                            slot['frame'], 
+                            text="You (Local)", 
+                            fg='lightgreen', 
+                            bg='black',
+                            font=('Arial', 8)
+                        )
+                        slot['name_label'].pack(side='bottom')
+                    
+                logger.debug("Local video frame updated")
+            
         except Exception as e:
             logger.error(f"Error updating local video: {e}")
+            # Show error in video slot
+            if 0 in self.video_slots:
+                slot = self.video_slots[0]
+                if 'label' in slot:
+                    slot['label'].config(text="Local Video\nError", fg='red')
     
     def update_remote_video(self, client_id: str, frame):
         """Update remote video display with incoming frame."""
         try:
-            # This is a placeholder for remote video display
-            # In a full implementation, you would:
-            # 1. Convert OpenCV frame to PIL Image
-            # 2. Resize frame to fit in grid layout
-            # 3. Convert to PhotoImage for tkinter
-            # 4. Update the appropriate video feed widget
-            # For now, we'll just log that video is being received
-            logger.debug(f"Received video frame from client {client_id}")
+            import cv2
+            from PIL import Image, ImageTk
+            
+            # Convert OpenCV frame (BGR) to RGB
+            if frame is not None and frame.size > 0:
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                
+                # Convert to PIL Image
+                pil_image = Image.fromarray(rgb_frame)
+                
+                # Resize to fit in video slot (maintain aspect ratio)
+                display_size = (160, 120)  # Small size for grid layout
+                pil_image.thumbnail(display_size, Image.LANCZOS)
+                
+                # Convert to PhotoImage for tkinter
+                photo = ImageTk.PhotoImage(pil_image)
+                
+                # Find available slot for this client (skip slot 0 which is for local video)
+                slot_id = self._get_or_assign_video_slot(client_id)
+                
+                if slot_id is not None and slot_id in self.video_slots:
+                    slot = self.video_slots[slot_id]
+                    
+                    # Remove text label and add video display
+                    if 'label' in slot and slot['label'].winfo_exists():
+                        slot['label'].pack_forget()
+                    
+                    if not hasattr(slot, 'video_canvas'):
+                        slot['video_canvas'] = tk.Canvas(
+                            slot['frame'], 
+                            width=display_size[0], 
+                            height=display_size[1],
+                            bg='black'
+                        )
+                        slot['video_canvas'].pack(expand=True)
+                    
+                    # Clear canvas and display new frame
+                    slot['video_canvas'].delete("all")
+                    slot['video_canvas'].create_image(
+                        display_size[0]//2, display_size[1]//2, 
+                        anchor='center', 
+                        image=photo
+                    )
+                    
+                    # Keep reference to prevent garbage collection
+                    slot['video_canvas'].image = photo
+                    
+                    # Update slot info
+                    slot['participant_id'] = client_id
+                    slot['active'] = True
+                    
+                    # Add participant name label
+                    if not hasattr(slot, 'name_label'):
+                        slot['name_label'] = tk.Label(
+                            slot['frame'], 
+                            text=f"Client {client_id[:8]}", 
+                            fg='lightblue', 
+                            bg='black',
+                            font=('Arial', 8)
+                        )
+                        slot['name_label'].pack(side='bottom')
+                    
+                logger.debug(f"Remote video frame updated for client {client_id}")
+            
         except Exception as e:
-            logger.error(f"Error updating remote video: {e}")
+            logger.error(f"Error updating remote video from {client_id}: {e}")
     
     def create_dynamic_video_grid(self, active_video_clients: list):
         """Create dynamic grid layout for multiple video feeds."""
