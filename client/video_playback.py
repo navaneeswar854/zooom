@@ -11,6 +11,7 @@ from typing import Optional, Callable, Dict, Any
 import numpy as np
 from collections import deque
 from common.messages import UDPPacket
+from client.video_optimization import video_optimizer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -122,7 +123,7 @@ class VideoRenderer:
     
     def process_video_packet(self, video_packet: UDPPacket):
         """
-        Process incoming video packet from server.
+        Process incoming video packet with optimization and buffering.
         
         Args:
             video_packet: UDP packet containing compressed video data
@@ -132,20 +133,31 @@ class VideoRenderer:
         
         try:
             client_id = video_packet.sender_id
+            packet_timestamp = time.time()
+            
+            # Register transmission timing
+            video_optimizer.sync_manager.register_frame_timing(
+                client_id, 'transmit', packet_timestamp, video_packet.sequence_num
+            )
             
             # Initialize stream if new
             with self._lock:
                 if client_id not in self.video_streams:
                     self.video_streams[client_id] = {
-                        'last_packet_time': time.time(),
+                        'last_packet_time': packet_timestamp,
                         'packets_received': 0,
                         'frames_decoded': 0,
                         'last_sequence': -1,
-                        'active': True
+                        'active': True,
+                        'packet_loss_count': 0,
+                        'expected_sequence': 0
                     }
                     self.frame_buffers[client_id] = deque(maxlen=self.max_buffer_size)
                     
-                    logger.info(f"Added video stream for client {client_id}")
+                    # Register client with optimizer
+                    video_optimizer.register_client(client_id)
+                    
+                    logger.info(f"Added optimized video stream for client {client_id}")
                     
                     # Notify stream status callback
                     if self.stream_status_callback:
@@ -153,32 +165,60 @@ class VideoRenderer:
                 
                 stream_info = self.video_streams[client_id]
                 
+                # Detect packet loss
+                expected_seq = stream_info['expected_sequence']
+                if video_packet.sequence_num > expected_seq:
+                    lost_packets = video_packet.sequence_num - expected_seq
+                    stream_info['packet_loss_count'] += lost_packets
+                    logger.debug(f"Detected {lost_packets} lost packets for {client_id}")
+                
+                stream_info['expected_sequence'] = video_packet.sequence_num + 1
+                
                 # Update stream statistics
-                stream_info['last_packet_time'] = time.time()
+                stream_info['last_packet_time'] = packet_timestamp
                 stream_info['packets_received'] += 1
                 stream_info['last_sequence'] = video_packet.sequence_num
                 stream_info['active'] = True
                 
                 self.stats['total_frames_received'] += 1
                 self.stats['active_video_streams'] = len(self.video_streams)
+                
+                # Calculate packet loss rate
+                if stream_info['packets_received'] > 0:
+                    packet_loss_rate = stream_info['packet_loss_count'] / stream_info['packets_received']
+                    
+                    # Update network conditions in optimizer
+                    video_optimizer.update_network_conditions(
+                        packet_loss_rate, 
+                        0.02,  # Placeholder latency - would need actual measurement
+                        len(video_packet.data)  # Throughput approximation
+                    )
             
             # Decompress video frame
+            decode_start_time = time.time()
             frame = self._decompress_frame(video_packet.data)
             
             if frame is not None:
+                # Register decode timing
+                video_optimizer.sync_manager.register_frame_timing(
+                    client_id, 'decode', time.time(), video_packet.sequence_num
+                )
+                
+                # Add frame to optimizer buffer instead of simple deque
+                video_optimizer.add_frame(
+                    client_id, 
+                    frame, 
+                    packet_timestamp, 
+                    video_packet.sequence_num
+                )
+                
                 with self._lock:
-                    # Add frame to buffer
-                    self.frame_buffers[client_id].append({
-                        'frame': frame,
-                        'timestamp': time.time(),
-                        'sequence': video_packet.sequence_num
-                    })
-                    
                     stream_info['frames_decoded'] += 1
                 
-                # Notify frame update callback
-                if self.frame_update_callback:
-                    self.frame_update_callback(client_id, frame)
+                # Use optimized frame retrieval for callback
+                optimized_frame = video_optimizer.get_frame(client_id)
+                if optimized_frame is not None and self.frame_update_callback:
+                    self.frame_update_callback(client_id, optimized_frame)
             
         except Exception as e:
             logger.error(f"Error processing video packet: {e}")
@@ -295,7 +335,10 @@ class VideoRenderer:
         """
         with self._lock:
             if client_id in self.video_streams:
-                logger.info(f"Removing video stream for client {client_id}")
+                logger.info(f"Removing optimized video stream for client {client_id}")
+                
+                # Unregister from optimizer
+                video_optimizer.unregister_client(client_id)
                 
                 # Notify stream status callback
                 if self.stream_status_callback:
@@ -413,7 +456,7 @@ class VideoManager:
     
     def start_video_system(self) -> bool:
         """
-        Start the video management system.
+        Start the optimized video management system.
         
         Returns:
             bool: True if started successfully
@@ -423,13 +466,17 @@ class VideoManager:
             return True
         
         try:
+            # Start video optimizer
+            video_optimizer.start_optimization()
+            
             # Start video renderer
             if not self.video_renderer.start_rendering():
                 logger.error("Failed to start video renderer")
+                video_optimizer.stop_optimization()
                 return False
             
             self.is_active = True
-            logger.info("Video system started")
+            logger.info("Optimized video system started")
             return True
             
         except Exception as e:
@@ -437,7 +484,7 @@ class VideoManager:
             return False
     
     def stop_video_system(self):
-        """Stop the video management system."""
+        """Stop the optimized video management system."""
         if not self.is_active:
             return
         
@@ -446,7 +493,10 @@ class VideoManager:
         # Stop video renderer
         self.video_renderer.stop_rendering()
         
-        logger.info("Video system stopped")
+        # Stop video optimizer
+        video_optimizer.stop_optimization()
+        
+        logger.info("Optimized video system stopped")
     
     def process_incoming_video(self, video_packet: UDPPacket):
         """

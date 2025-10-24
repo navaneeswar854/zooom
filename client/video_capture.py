@@ -10,6 +10,7 @@ from typing import Optional, Callable, Tuple
 import numpy as np
 from common.messages import UDPPacket, MessageFactory
 from common.platform_utils import PLATFORM_INFO, DeviceUtils, ErrorHandler
+from client.video_optimization import video_optimizer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -74,8 +75,18 @@ class VideoCapture:
             'capture_start_time': None,
             'last_frame_time': None,
             'average_frame_size': 0,
-            'total_bytes_sent': 0
+            'total_bytes_sent': 0,
+            'frames_dropped': 0,
+            'encoding_times': []
         }
+        
+        # Optimization integration
+        self.adaptive_settings = {
+            'quality': self.compression_quality,
+            'fps': self.fps,
+            'resolution_scale': 1.0
+        }
+        self.last_quality_update = 0
         
         # Callbacks
         self.frame_callback: Optional[Callable[[np.ndarray], None]] = None
@@ -250,6 +261,24 @@ class VideoCapture:
         
         logger.info("Video capture stopped")
     
+    def _update_adaptive_settings(self):
+        """Update adaptive settings based on optimizer recommendations."""
+        current_time = time.time()
+        
+        # Update settings every 2 seconds
+        if current_time - self.last_quality_update >= 2.0:
+            self.last_quality_update = current_time
+            
+            # Get optimized settings
+            quality_settings = video_optimizer.get_quality_settings()
+            
+            # Update adaptive settings
+            self.adaptive_settings.update(quality_settings)
+            
+            # Log quality changes
+            if abs(self.adaptive_settings['quality'] - self.compression_quality) > 5:
+                logger.info(f"Adaptive quality changed to {self.adaptive_settings['quality']}")
+    
     def _cleanup_camera(self):
         """Clean up camera resources."""
         if self.camera:
@@ -304,15 +333,24 @@ class VideoCapture:
     
     def _process_frame(self, frame: np.ndarray):
         """
-        Process captured frame: resize, compress, and transmit.
+        Process captured frame: resize, compress, and transmit with optimization.
         
         Args:
             frame: Captured video frame from OpenCV
         """
         try:
-            # Resize frame if needed
-            if frame.shape[1] != self.width or frame.shape[0] != self.height:
-                frame = cv2.resize(frame, (self.width, self.height))
+            capture_start_time = time.time()
+            
+            # Update adaptive settings periodically
+            self._update_adaptive_settings()
+            
+            # Apply resolution scaling if needed
+            target_width = int(self.width * self.adaptive_settings['resolution_scale'])
+            target_height = int(self.height * self.adaptive_settings['resolution_scale'])
+            
+            # Resize frame with adaptive resolution
+            if frame.shape[1] != target_width or frame.shape[0] != target_height:
+                frame = cv2.resize(frame, (target_width, target_height))
             
             # Call frame callback for local display
             if self.frame_callback:
@@ -321,12 +359,35 @@ class VideoCapture:
                 except Exception as e:
                     logger.warning(f"Error in frame callback: {e}")
             
-            # Compress frame using JPEG
+            # Register capture timing
+            video_optimizer.sync_manager.register_frame_timing(
+                self.client_id, 'capture', capture_start_time, self.sequence_number
+            )
+            
+            # Compress frame using adaptive quality
+            encode_start_time = time.time()
             compressed_frame = self._compress_frame(frame)
+            encode_time = time.time() - encode_start_time
+            
+            # Track encoding performance
+            self.stats['encoding_times'].append(encode_time)
+            if len(self.stats['encoding_times']) > 30:
+                self.stats['encoding_times'] = self.stats['encoding_times'][-30:]
+            
+            # Register encode timing
+            video_optimizer.sync_manager.register_frame_timing(
+                self.client_id, 'encode', time.time(), self.sequence_number
+            )
             
             if compressed_frame is not None:
                 # Send compressed frame via UDP
                 self._send_video_packet(compressed_frame)
+            else:
+                self.stats['frames_dropped'] += 1
+            
+            # Update performance metrics
+            avg_encoding_time = sum(self.stats['encoding_times']) / len(self.stats['encoding_times']) if self.stats['encoding_times'] else 0
+            video_optimizer.update_performance_metrics(self.stats['frames_dropped'], avg_encoding_time)
             
         except Exception as e:
             logger.error(f"Error processing frame: {e}")
@@ -334,7 +395,7 @@ class VideoCapture:
     
     def _compress_frame(self, frame: np.ndarray) -> Optional[bytes]:
         """
-        Compress video frame using JPEG compression.
+        Compress video frame using adaptive JPEG compression.
         
         Args:
             frame: Video frame to compress
@@ -343,10 +404,14 @@ class VideoCapture:
             bytes: Compressed frame data or None if compression failed
         """
         try:
-            # JPEG compression parameters
+            # Use adaptive quality setting
+            current_quality = int(self.adaptive_settings['quality'])
+            
+            # JPEG compression parameters with adaptive quality
             encode_params = [
-                cv2.IMWRITE_JPEG_QUALITY, self.compression_quality,
-                cv2.IMWRITE_JPEG_OPTIMIZE, 1
+                cv2.IMWRITE_JPEG_QUALITY, current_quality,
+                cv2.IMWRITE_JPEG_OPTIMIZE, 1,
+                cv2.IMWRITE_JPEG_PROGRESSIVE, 1  # Progressive JPEG for better streaming
             ]
             
             # Encode frame as JPEG
