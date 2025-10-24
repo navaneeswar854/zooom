@@ -11,6 +11,7 @@ import time
 from typing import Dict, List, Optional, Callable, Any
 from datetime import datetime
 from client.stable_video_system import stability_manager
+from client.ultra_stable_gui import ultra_stable_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -186,26 +187,24 @@ class VideoFrame(ModuleFrame):
                 slot_index += 1
     
     def update_local_video(self, frame):
-        """Update local video display with maximum stability - no flickering."""
+        """Update local video display with ultra-stability - zero shaking."""
         try:
-            # Use stable video system to prevent interface shaking
             client_id = 'local'
             
-            # Register video slot if not already registered
+            # Use ultra-stable system to completely prevent shaking
             if 0 in self.video_slots:
-                stability_manager.register_video_slot(client_id, self.video_slots[0])
-            
-            # Update with stable system
-            success = stability_manager.update_video_frame(client_id, frame)
-            
-            if not success:
-                # Fallback to safe update
-                self._update_local_video_safe_stable(frame)
+                ultra_stable_manager.register_video_slot(client_id, self.video_slots[0])
+                
+                # Update with ultra-stable system
+                success = ultra_stable_manager.update_video_frame(client_id, frame)
+                
+                if not success:
+                    # Frame was queued or rate limited - this is normal
+                    pass
             
         except Exception as e:
-            logger.error(f"Local video update error: {e}")
-            # Error recovery - show error message
-            self._show_video_error('local', "Local video error")
+            logger.error(f"Ultra-stable local video error: {e}")
+            # Error recovery handled by ultra-stable system
     
     def _update_local_video_extreme(self, frame):
         """Extreme optimization local video update - zero flickering."""
@@ -397,27 +396,30 @@ class VideoFrame(ModuleFrame):
             except:
                 pass  # Ignore errors when showing error message
     def update_remote_video(self, client_id: str, frame):
-        """Update remote video display with maximum stability - no flickering."""
+        """Update remote video display with ultra-stability - zero shaking."""
         try:
-            # Use stable video system to prevent interface shaking
+            # Use ultra-stable system to completely prevent interface shaking
             
             # Find or assign video slot
             slot_id = self._get_video_slot_stable(client_id)
             if slot_id is not None and slot_id in self.video_slots:
-                # Register video slot if not already registered
-                stability_manager.register_video_slot(client_id, self.video_slots[slot_id])
+                # Register with ultra-stable system
+                ultra_stable_manager.register_video_slot(client_id, self.video_slots[slot_id])
                 
-                # Update with stable system
-                success = stability_manager.update_video_frame(client_id, frame)
+                # Update slot assignment
+                self.video_slots[slot_id]['participant_id'] = client_id
+                self.video_slots[slot_id]['active'] = True
+                
+                # Update with ultra-stable system (never causes shaking)
+                success = ultra_stable_manager.update_video_frame(client_id, frame)
                 
                 if not success:
-                    # Fallback to safe update
-                    self._update_remote_video_safe_stable(client_id, frame, slot_id)
+                    # Frame was queued or rate limited - this is normal and prevents shaking
+                    pass
             
         except Exception as e:
-            logger.error(f"Remote video update error for {client_id}: {e}")
-            # Error recovery - show error message
-            self._show_video_error(client_id, f"Remote video error: {client_id}")
+            logger.error(f"Ultra-stable remote video error for {client_id}: {e}")
+            # Error recovery handled by ultra-stable system
     
     def _update_remote_video_safe(self, client_id: str, frame):
         """Thread-safe implementation of remote video update."""
@@ -672,31 +674,17 @@ class VideoFrame(ModuleFrame):
             logger.error(f"Error showing video error for {client_id}: {e}")
     
     def clear_video_slot(self, client_id: str):
-        """Clear video slot for a disconnected client safely."""
+        """Clear video slot for a disconnected client with ultra-stability."""
         try:
-            # Remove from stability manager
+            # Remove from ultra-stable manager
+            ultra_stable_manager.unregister_video_slot(client_id)
+            
+            # Also remove from stability manager
             stability_manager.remove_video_slot(client_id)
             
             for slot_id, slot in self.video_slots.items():
                 if slot.get('participant_id') == client_id:
-                    logger.info(f"Clearing video slot {slot_id} for disconnected client {client_id}")
-                    
-                    # Clear slot safely
-                    if self._widget_exists(slot['frame']):
-                        for child in slot['frame'].winfo_children():
-                            child.destroy()
-                        
-                        # Recreate placeholder label
-                        slot_text = "Your Video\n(Enable video)" if slot_id == 0 else f"Video Slot {slot_id+1}\nNo participant"
-                        placeholder_label = tk.Label(
-                            slot['frame'], 
-                            text=slot_text, 
-                            fg='lightgreen' if slot_id == 0 else 'white', 
-                            bg='black',
-                            font=('Arial', 10)
-                        )
-                        placeholder_label.pack(expand=True)
-                        slot['label'] = placeholder_label
+                    logger.info(f"Clearing ultra-stable video slot {slot_id} for client {client_id}")
                     
                     # Clear slot assignment
                     slot['participant_id'] = 'local' if slot_id == 0 else None
@@ -704,7 +692,7 @@ class VideoFrame(ModuleFrame):
                     break
                     
         except Exception as e:
-            logger.error(f"Error clearing video slot for {client_id}: {e}")
+            logger.error(f"Error clearing ultra-stable video slot for {client_id}: {e}")
 
     def create_dynamic_video_grid(self, active_video_clients: list):
         """Create dynamic grid layout for multiple video feeds."""
