@@ -477,10 +477,26 @@ class ScreenManager:
                 logger.warning("Received screen frame without presenter ID")
                 return
             
-            # Update GUI with screen frame
+            # Convert numpy array back to JPEG bytes for GUI display
             if self.gui_manager:
                 try:
-                    self.gui_manager.display_screen_frame(frame_data, presenter_id)
+                    # Check if frame_data is a numpy array (from screen playback)
+                    if hasattr(frame_data, 'shape') and hasattr(frame_data, 'dtype'):
+                        # Convert numpy array to JPEG bytes
+                        import cv2
+                        encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]
+                        success, encoded_frame = cv2.imencode('.jpg', frame_data, encode_params)
+                        
+                        if success:
+                            jpeg_bytes = encoded_frame.tobytes()
+                            self.gui_manager.display_screen_frame(jpeg_bytes, presenter_id)
+                        else:
+                            logger.error("Failed to encode numpy array to JPEG for display")
+                            self.gui_manager.show_error("Display Error", "Failed to encode screen frame for display")
+                    else:
+                        # Assume it's already bytes (fallback)
+                        self.gui_manager.display_screen_frame(frame_data, presenter_id)
+                        
                 except Exception as gui_error:
                     logger.error(f"Error updating GUI with screen frame: {gui_error}")
                     # Show error to user but don't crash
