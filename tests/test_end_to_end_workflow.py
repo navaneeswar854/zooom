@@ -86,7 +86,7 @@ class TestCompleteCollaborationWorkflow(unittest.TestCase):
         self.assertEqual(presenter.client_id, client1_id)
         
         # 6. Test screen sharing
-        success = self.session_manager.start_screen_sharing(client1_id)
+        success, msg = self.session_manager.start_screen_sharing(client1_id)
         self.assertTrue(success)
         self.assertTrue(self.session_manager.is_screen_sharing_active())
         

@@ -106,7 +106,6 @@
 
 - [x] 8. Add unit tests for screen sharing components
 
-
   - Write tests for screen capture initialization and frame processing
   - Test image scaling algorithms with various aspect ratios
   - Test message serialization/deserialization for screen sharing
@@ -114,8 +113,6 @@
   - _Requirements: All requirements_
 
 - [x] 9. Add integration tests for end-to-end screen sharing
-
-
 
 
   - Test complete screen sharing flow from button click to display

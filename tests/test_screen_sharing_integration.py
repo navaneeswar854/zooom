@@ -55,6 +55,15 @@ class TestScreenSharingIntegration(unittest.TestCase):
         self.mock_connection_1 = Mock()
         self.mock_connection_2 = Mock()
         
+        # Configure mock connection managers to return tuples
+        self.mock_connection_1.start_screen_sharing.return_value = (True, "Started")
+        self.mock_connection_1.stop_screen_sharing.return_value = (True, "Stopped")
+        self.mock_connection_1.request_presenter_role.return_value = (True, "Requested")
+        
+        self.mock_connection_2.start_screen_sharing.return_value = (True, "Started")
+        self.mock_connection_2.stop_screen_sharing.return_value = (True, "Stopped")
+        self.mock_connection_2.request_presenter_role.return_value = (True, "Requested")
+        
         # Create screen managers
         self.screen_manager_1 = ScreenManager(self.client_id_1, self.mock_connection_1)
         self.screen_manager_2 = ScreenManager(self.client_id_2, self.mock_connection_2)
@@ -82,16 +91,16 @@ class TestScreenSharingIntegration(unittest.TestCase):
         self.assertIn("already taken", message)
         
         # Client 1 starts screen sharing
-        success = self.session_manager.start_screen_sharing(self.client_id_1)
+        success, msg = self.session_manager.start_screen_sharing(self.client_id_1)
         self.assertTrue(success)
         self.assertTrue(self.session_manager.is_screen_sharing_active())
         
         # Client 2 tries to start screen sharing (should fail)
-        success = self.session_manager.start_screen_sharing(self.client_id_2)
+        success, msg = self.session_manager.start_screen_sharing(self.client_id_2)
         self.assertFalse(success)
         
         # Client 1 stops screen sharing
-        success = self.session_manager.stop_screen_sharing(self.client_id_1)
+        success, msg = self.session_manager.stop_screen_sharing(self.client_id_1)
         self.assertTrue(success)
         self.assertFalse(self.session_manager.is_screen_sharing_active())
         
@@ -148,7 +157,8 @@ class TestScreenSharingIntegration(unittest.TestCase):
         """Test screen frame relay through server."""
         # Set up presenter
         self.session_manager.set_presenter(self.client_id_1)
-        self.session_manager.start_screen_sharing(self.client_id_1)
+        success, msg = self.session_manager.start_screen_sharing(self.client_id_1)
+        self.assertTrue(success)
         
         # Create test screen frame message
         test_frame_data = b"test_screen_frame_data"
@@ -263,18 +273,20 @@ class TestScreenSharingIntegration(unittest.TestCase):
         self.screen_manager_1.request_presenter_role()
         self.mock_connection_1.request_presenter_role.assert_called_once()
         
-        # Simulate presenter granted
-        self.screen_manager_1.handle_presenter_granted()
-        self.assertTrue(self.screen_manager_1.is_presenter)
-        mock_gui.handle_presenter_granted.assert_called_once()
-        
-        # Test screen sharing start
-        with patch.object(self.screen_manager_1.screen_capture, 'start_capture', return_value=True):
-            success = self.screen_manager_1.start_screen_sharing()
-            self.assertTrue(success)
-            self.assertTrue(self.screen_manager_1.is_sharing)
-            self.mock_connection_1.start_screen_sharing.assert_called_once()
-            mock_gui.set_screen_sharing_status.assert_called_with(True)
+        # Test screen sharing start (happens automatically when presenter is granted)
+        with patch.object(self.screen_manager_1.screen_capture, 'start_capture', return_value=(True, "Started")):
+            with patch.object(self.screen_manager_1.screen_capture, 'get_capability_info', return_value={'available': True}):
+                # Simulate presenter granted (this will auto-start screen sharing)
+                self.screen_manager_1.handle_presenter_granted()
+                self.assertTrue(self.screen_manager_1.is_presenter)
+                mock_gui.handle_presenter_granted.assert_called_once()
+                
+                # Simulate server confirmation
+                self.screen_manager_1.handle_screen_share_confirmed()
+                
+                self.assertTrue(self.screen_manager_1.is_sharing)
+                self.mock_connection_1.start_screen_sharing.assert_called_once()
+                mock_gui.set_screen_sharing_status.assert_called_with(True)
         
         # Test screen sharing stop
         self.screen_manager_1.stop_screen_sharing()
@@ -322,16 +334,18 @@ class TestScreenSharingIntegration(unittest.TestCase):
         self.assertFalse(status['is_sharing'])
         self.assertFalse(status['presenter_request_pending'])
         
-        # Simulate presenter granted
-        self.screen_manager_1.handle_presenter_granted()
-        status = self.screen_manager_1.get_screen_sharing_status()
-        self.assertTrue(status['is_presenter'])
-        
-        # Simulate screen sharing start
-        with patch.object(self.screen_manager_1.screen_capture, 'start_capture', return_value=True):
-            self.screen_manager_1.start_screen_sharing()
-            status = self.screen_manager_1.get_screen_sharing_status()
-            self.assertTrue(status['is_sharing'])
+        # Simulate screen sharing start (happens automatically when presenter is granted)
+        with patch.object(self.screen_manager_1.screen_capture, 'start_capture', return_value=(True, "Started")):
+            with patch.object(self.screen_manager_1.screen_capture, 'get_capability_info', return_value={'available': True}):
+                # Simulate presenter granted (this will auto-start screen sharing)
+                self.screen_manager_1.handle_presenter_granted()
+                status = self.screen_manager_1.get_screen_sharing_status()
+                self.assertTrue(status['is_presenter'])
+                
+                # Simulate server confirmation
+                self.screen_manager_1.handle_screen_share_confirmed()
+                status = self.screen_manager_1.get_screen_sharing_status()
+                self.assertTrue(status['is_sharing'])
     
     def test_screen_capture_settings(self):
         """Test screen capture settings configuration."""
