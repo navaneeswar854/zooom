@@ -346,7 +346,7 @@ class SessionManager:
     
     def stop_screen_sharing(self, client_id: str = None) -> tuple[bool, str]:
         """
-        Stop screen sharing.
+        Stop screen sharing and properly reset presenter role.
         
         Args:
             client_id: The unique ID of the client stopping screen sharing (optional)
@@ -363,19 +363,26 @@ class SessionManager:
                 logger.warning(f"Client {client_id} attempted to stop screen sharing without presenter role")
                 return False, "You must be the presenter to stop screen sharing"
             
+            # Store presenter info before clearing
+            previous_presenter = self.active_presenter
+            
+            # Clear screen sharing state
             self.screen_sharing_active = False
-            self.active_screen_sharer = None  # Clear the active screen sharer
+            self.active_screen_sharer = None
             self.last_screen_frame_time = None
             
-            # Clear presenter role when screen sharing stops
+            # Properly clear presenter role when screen sharing stops
             if self.active_presenter:
                 presenter = self.clients.get(self.active_presenter)
                 if presenter:
                     presenter.is_presenter = False
+                    logger.info(f"Cleared presenter flag for client {self.active_presenter}")
+                
+                # Reset presenter role completely
                 self.active_presenter = None
                 logger.info(f"Presenter role cleared when screen sharing stopped")
             
-            logger.info("Screen sharing stopped")
+            logger.info(f"Screen sharing stopped successfully. Previous presenter: {previous_presenter}")
             return True, "Screen sharing stopped successfully"
     
     def is_screen_sharing_active(self) -> bool:
@@ -393,6 +400,41 @@ class SessionManager:
         with self._lock:
             self.last_screen_frame_time = time.time()
     
+
+    def reset_presenter_role(self, client_id: str = None) -> bool:
+        """
+        Explicitly reset presenter role to allow new requests.
+        
+        Args:
+            client_id: Optional client ID to verify (for security)
+            
+        Returns:
+            bool: True if reset successful
+        """
+        with self._lock:
+            if client_id and self.active_presenter and self.active_presenter != client_id:
+                logger.warning(f"Client {client_id} attempted to reset presenter role held by {self.active_presenter}")
+                return False
+            
+            # Clear presenter role completely
+            if self.active_presenter:
+                presenter = self.clients.get(self.active_presenter)
+                if presenter:
+                    presenter.is_presenter = False
+                    logger.info(f"Reset presenter flag for client {self.active_presenter}")
+                
+                self.active_presenter = None
+                logger.info("Presenter role reset - ready for new requests")
+            
+            # Also ensure screen sharing is stopped
+            if self.screen_sharing_active:
+                self.screen_sharing_active = False
+                self.active_screen_sharer = None
+                self.last_screen_frame_time = None
+                logger.info("Screen sharing also stopped during presenter reset")
+            
+            return True
+
     def get_screen_sharing_info(self) -> dict:
         """
         Get screen sharing status information.

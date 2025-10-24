@@ -190,6 +190,12 @@ class ScreenManager:
                     return
                 
                 self.is_sharing = False
+                # Reset presenter state to allow re-sharing
+                self.is_presenter = False
+                self.presenter_request_pending = False
+                # Reset presenter state to allow re-sharing
+                self.is_presenter = False
+                self.presenter_request_pending = False
             
             # Stop screen capture with error handling
             try:
@@ -217,6 +223,8 @@ class ScreenManager:
             try:
                 if self.gui_manager:
                     self.gui_manager.set_screen_sharing_status(False)
+                    # Clear presenter status since server clears presenter role when screen sharing stops
+                    self.gui_manager.set_presenter_status(False)
                     logger.info("GUI updated for screen sharing stop")
             except Exception as e:
                 logger.error(f"Error updating GUI for screen sharing stop: {e}")
@@ -681,6 +689,39 @@ class ScreenManager:
         """
         return self.screen_capture.set_capture_window(window_title)
     
+
+    def handle_screen_sharing_stopped_by_server(self):
+        """Handle when screen sharing is stopped by server (e.g., presenter disconnected)."""
+        try:
+            with self._lock:
+                # Reset all screen sharing state
+                self.is_sharing = False
+                self.is_presenter = False
+                self.presenter_request_pending = False
+            
+            # Stop local screen capture if running
+            try:
+                self.screen_capture.stop_capture()
+                logger.info("Screen capture stopped due to server notification")
+            except Exception as e:
+                logger.error(f"Error stopping screen capture: {e}")
+            
+            # Update GUI to reflect stopped state
+            if self.gui_manager:
+                try:
+                    self.gui_manager.set_screen_sharing_status(False)
+                    self.gui_manager.set_presenter_status(False)
+                    # Reset button to allow new sharing requests
+                    self.gui_manager.reset_screen_sharing_button()
+                    logger.info("GUI updated for server-initiated screen sharing stop")
+                except Exception as e:
+                    logger.error(f"Error updating GUI: {e}")
+            
+            logger.info("Screen sharing stopped by server - ready for new requests")
+        
+        except Exception as e:
+            logger.error(f"Error handling screen sharing stopped by server: {e}")
+
     def cleanup(self):
         """Clean up screen sharing resources with comprehensive error handling."""
         logger.info("Cleaning up screen sharing manager")

@@ -692,21 +692,53 @@ class ScreenShareFrame(ModuleFrame):
         # Callbacks
         self.screen_share_callback: Optional[Callable[[bool], None]] = None
     
+
+    def _safe_button_update(self, button, **kwargs):
+        """Safely update button properties with validation."""
+        try:
+            if button and button.winfo_exists():
+                button.config(**kwargs)
+            else:
+                logger.warning("Attempted to update non-existent button")
+        except tk.TclError as e:
+            logger.error(f"Tkinter error updating button: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error updating button: {e}")
+    
+    def _safe_label_update(self, label, **kwargs):
+        """Safely update label properties with validation."""
+        try:
+            if label and label.winfo_exists():
+                label.config(**kwargs)
+            else:
+                logger.warning("Attempted to update non-existent label")
+        except tk.TclError as e:
+            logger.error(f"Tkinter error updating label: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error updating label: {e}")
     def set_screen_share_callback(self, callback: Callable[[bool], None]):
         """Set callback for screen sharing toggle events."""
         self.screen_share_callback = callback
     
     def _toggle_screen_share(self):
         """Toggle screen sharing on/off or request presenter role with loading states."""
-        logger.info(f"Screen share button clicked. Current sharing: {self.is_sharing}")
-        
-        # Check button text to determine action
-        button_text = self.share_button.cget('text')
+        try:
+            logger.info(f"Screen share button clicked. Current sharing: {self.is_sharing}")
+            
+            # Safely get button text with validation
+            try:
+                if not self.share_button.winfo_exists():
+                    logger.error("Share button no longer exists")
+                    return
+                button_text = self.share_button.cget('text')
+            except tk.TclError as e:
+                logger.error(f"Error getting button text: {e}")
+                return
         
         if button_text == "Request Presenter Role":
             # Add loading states during presenter role requests
-            self.share_button.config(state='disabled', text="Requesting...")
-            self.sharing_status.config(text="Requesting presenter role...", foreground='orange')
+            self._safe_button_update(self.share_button, state='disabled', text="Requesting...")
+            self._safe_label_update(self.sharing_status, text="Requesting presenter role...", foreground='orange')
             
             # Request presenter role
             if self.screen_share_callback:
@@ -717,8 +749,8 @@ class ScreenShareFrame(ModuleFrame):
                 self.after(10000, self._reset_presenter_request_timeout)
         elif button_text.startswith("Start"):
             # Start screen sharing (already presenter)
-            self.share_button.config(state='disabled', text="Starting...")
-            self.sharing_status.config(text="Starting screen share...", foreground='orange')
+            self._safe_button_update(self.share_button, state='disabled', text="Starting...")
+            self._safe_label_update(self.sharing_status, text="Starting screen share...", foreground='orange')
             
             if self.screen_share_callback:
                 logger.info("Starting screen sharing")
@@ -734,10 +766,10 @@ class ScreenShareFrame(ModuleFrame):
     def _reset_presenter_request_timeout(self):
         """Reset presenter request button after timeout."""
         if self.share_button.cget('text') == "Requesting...":
-            self.share_button.config(state='normal', text="Request Presenter Role")
-            self.sharing_status.config(text="Request timed out - try again", foreground='red')
+            self._safe_button_update(self.share_button, state='normal', text="Request Presenter Role")
+            self._safe_label_update(self.sharing_status, text="Request timed out - try again", foreground='red')
             # Reset to normal after delay
-            self.after(3000, lambda: self.sharing_status.config(text="Ready to request presenter role", foreground='black'))
+            self.after(3000, lambda: self._safe_label_update(self.sharing_status, text="Ready to request presenter role", foreground='black'))
     
     def update_presenter(self, presenter_name: str = None):
         """Update presenter display (for showing who is currently presenting)."""
@@ -746,18 +778,18 @@ class ScreenShareFrame(ModuleFrame):
         # Update button state based on who is sharing
         if presenter_name and not self.is_sharing:
             # Someone else is sharing - disable our button
-            self.share_button.config(state='disabled', text=f"{presenter_name} is sharing")
+            self._safe_button_update(self.share_button, state='disabled', text=f"{presenter_name} is sharing")
             # Display "[Username] is sharing" when receiving remote screen
-            self.sharing_status.config(text=f"{presenter_name} is sharing", foreground='blue')
+            self._safe_label_update(self.sharing_status, text=f"{presenter_name} is sharing", foreground='blue')
             # Show their screen area
             if not self.screen_canvas.winfo_viewable():
                 self.screen_label.pack_forget()
                 self.screen_canvas.pack(fill='both', expand=True)
         elif not presenter_name and not self.is_sharing:
             # No one is sharing - enable our button
-            self.share_button.config(state='normal', text="Start Screen Share")
+            self._safe_button_update(self.share_button, state='normal', text="Start Screen Share")
             # Reset status to "Ready to share" when screen sharing stops
-            self.sharing_status.config(text="Ready to share", foreground='black')
+            self._safe_label_update(self.sharing_status, text="Ready to share", foreground='black')
             # Hide screen area
             self.screen_canvas.pack_forget()
             self.screen_label.pack(expand=True)
@@ -765,9 +797,9 @@ class ScreenShareFrame(ModuleFrame):
         # Update display based on sharing status
         if not self.is_sharing:
             if presenter_name:
-                self.screen_label.config(text=f"Waiting for {presenter_name} to share")
+                self._safe_label_update(self.screen_label, text=f"Waiting for {presenter_name} to share")
             else:
-                self.screen_label.config(text="No screen sharing active")
+                self._safe_label_update(self.screen_label, text="No screen sharing active")
     
     def set_sharing_status(self, is_sharing: bool):
         """Update screen sharing status with proper status messages."""
@@ -776,22 +808,22 @@ class ScreenShareFrame(ModuleFrame):
         self._update_status_indicator()
         
         if is_sharing:
-            self.share_button.config(text="Stop Screen Share", state='normal')
+            self._safe_button_update(self.share_button, text="Stop Screen Share", state='normal')
             # Show "You are sharing" when local screen sharing is active
-            self.sharing_status.config(text="You are sharing", foreground='green')
+            self._safe_label_update(self.sharing_status, text="You are sharing", foreground='green')
             self.screen_label.pack_forget()
             self.screen_canvas.pack(fill='both', expand=True)
         else:
-            self.share_button.config(text="Start Screen Share", state='normal')
+            self._safe_button_update(self.share_button, text="Start Screen Share", state='normal')
             # Reset status to "Ready to share" when screen sharing stops
-            self.sharing_status.config(text="Ready to share", foreground='black')
+            self._safe_label_update(self.sharing_status, text="Ready to share", foreground='black')
             self.screen_canvas.pack_forget()
             self.screen_label.pack(expand=True)
             
             if self.current_presenter_name:
-                self.screen_label.config(text=f"{self.current_presenter_name} is sharing")
+                self._safe_label_update(self.screen_label, text=f"{self.current_presenter_name} is sharing")
             else:
-                self.screen_label.config(text="No screen sharing active")
+                self._safe_label_update(self.screen_label, text="No screen sharing active")
 
     
     def display_screen_frame(self, frame_data, presenter_name: str):
@@ -886,7 +918,7 @@ class ScreenShareFrame(ModuleFrame):
             logger.error(f"Error displaying screen frame: {e}")
             # Show error message to user
             if hasattr(self, 'screen_label'):
-                self.screen_label.config(text=f"Error displaying screen from {presenter_name}")
+                self._safe_label_update(self.screen_label, text=f"Error displaying screen from {presenter_name}")
                 if not self.screen_label.winfo_viewable():
                     self.screen_canvas.pack_forget()
                     self.screen_label.pack(expand=True)
@@ -956,6 +988,49 @@ class ScreenShareFrame(ModuleFrame):
         except Exception as e:
             logger.error(f"Error handling canvas resize: {e}")
     
+
+    def reset_screen_sharing_button(self):
+        """Reset screen sharing button to initial state."""
+        try:
+            self._safe_button_update(self.share_button, state='normal', text="Request Presenter Role")
+            self._safe_label_update(self.sharing_status, text="Ready to request presenter role", foreground='black')
+            self.is_sharing = False
+            logger.info("Screen sharing button reset to initial state")
+        except Exception as e:
+            logger.error(f"Error resetting screen sharing button: {e}")
+
+    def cleanup_gui_elements(self):
+        """Safely cleanup GUI elements to prevent tkinter errors."""
+        try:
+            # Reset button state safely
+            if hasattr(self, 'share_button') and self.share_button:
+                try:
+                    if self.share_button.winfo_exists():
+                        self.share_button.config(state='disabled')
+                except tk.TclError:
+                    pass  # Button already destroyed
+            
+            # Reset status label safely
+            if hasattr(self, 'sharing_status') and self.sharing_status:
+                try:
+                    if self.sharing_status.winfo_exists():
+                        self.sharing_status.config(text="Disconnected", foreground='red')
+                except tk.TclError:
+                    pass  # Label already destroyed
+            
+            # Clear canvas safely
+            if hasattr(self, 'screen_canvas') and self.screen_canvas:
+                try:
+                    if self.screen_canvas.winfo_exists():
+                        self.screen_canvas.delete("all")
+                except tk.TclError:
+                    pass  # Canvas already destroyed
+            
+            logger.info("GUI elements cleaned up safely")
+        
+        except Exception as e:
+            logger.error(f"Error during GUI cleanup: {e}")
+
     def _store_current_frame(self, frame_data, presenter_name: str):
         """Store current frame data for rescaling when canvas size changes."""
         self.current_frame_data = frame_data
@@ -965,7 +1040,7 @@ class ScreenShareFrame(ModuleFrame):
         """Handle presenter role being granted with enhanced feedback."""
         self.set_presenter_status(True)
         # Show visual indicators for active screen sharing state
-        self.sharing_status.config(text="You are the presenter - ready to share", foreground='blue')
+        self._safe_label_update(self.sharing_status, text="You are the presenter - ready to share", foreground='blue')
         messagebox.showinfo("Screen Share", "You are now the presenter! You can start screen sharing.")
     
     def handle_presenter_denied(self, reason: str = ""):
@@ -978,10 +1053,10 @@ class ScreenShareFrame(ModuleFrame):
             message += ". Another user may already be presenting."
         
         # Show visual feedback in status
-        self.sharing_status.config(text="Presenter request denied", foreground='red')
+        self._safe_label_update(self.sharing_status, text="Presenter request denied", foreground='red')
         
         # Reset status after a delay
-        self.after(3000, lambda: self.sharing_status.config(text="Ready to share", foreground='black'))
+        self.after(3000, lambda: self._safe_label_update(self.sharing_status, text="Ready to share", foreground='black'))
         
         messagebox.showwarning("Screen Share", message)
     
@@ -989,29 +1064,31 @@ class ScreenShareFrame(ModuleFrame):
         """Handle screen sharing being started by presenter."""
         if presenter_name != "You":
             self.update_presenter(presenter_name)
-            self.screen_label.config(text=f"{presenter_name} is sharing their screen")
+            self._safe_label_update(self.screen_label, text=f"{presenter_name} is sharing their screen")
     
     def handle_screen_share_stopped(self):
         """Handle screen sharing being stopped."""
         # Clear current presenter when screen sharing stops
         self.current_presenter_name = None
         self.set_sharing_status(False)
-        # Reset status to "Ready to share" when screen sharing stops
-        self.sharing_status.config(text="Ready to share", foreground='black')
+        # Clear presenter status since server clears presenter role when screen sharing stops
+        self.set_presenter_status(False)
+        # Reset status to "Ready to request presenter role" when screen sharing stops
+        self._safe_label_update(self.sharing_status, text="Ready to request presenter role", foreground='black')
     
     def set_presenter_status(self, is_presenter: bool, presenter_name: str = None):
         """Set presenter status for screen sharing with visual indicators."""
         if is_presenter:
-            self.share_button.config(state='normal', text="Start Screen Share")
+            self._safe_button_update(self.share_button, state='normal', text="Start Screen Share")
             # Show visual indicators for active screen sharing state
-            self.sharing_status.config(text="You are the presenter", foreground='blue')
+            self._safe_label_update(self.sharing_status, text="You are the presenter", foreground='blue')
         else:
             if presenter_name:
-                self.share_button.config(state='disabled', text=f"{presenter_name} is presenter")
-                self.sharing_status.config(text=f"{presenter_name} is the presenter", foreground='black')
+                self._safe_button_update(self.share_button, state='disabled', text=f"{presenter_name} is presenter")
+                self._safe_label_update(self.sharing_status, text=f"{presenter_name} is the presenter", foreground='black')
             else:
-                self.share_button.config(state='normal', text="Request Presenter Role")
-                self.sharing_status.config(text="Ready to request presenter role", foreground='black')
+                self._safe_button_update(self.share_button, state='normal', text="Request Presenter Role")
+                self._safe_label_update(self.sharing_status, text="Ready to request presenter role", foreground='black')
 
 
 class FileTransferFrame(ModuleFrame):
