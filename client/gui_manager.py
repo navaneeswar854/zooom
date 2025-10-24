@@ -135,26 +135,13 @@ class VideoFrame(ModuleFrame):
     
     def update_video_feeds(self, participants: Dict[str, Any]):
         """Update video feed display with participant information."""
-        # Update video slots with participant information
+        # Get participants with video enabled
         active_participants = [p for p in participants.values() 
                              if p.get('video_enabled', False)]
         
-        # Update each slot
+        # Clear all slots first to prevent duplicates
         for slot_id, slot in self.video_slots.items():
-            if slot_id < len(active_participants):
-                participant = active_participants[slot_id]
-                participant_name = participant.get('username', 'Unknown')
-                
-                # Update slot with participant info
-                if self._widget_exists(slot['label']):
-                    slot['label'].config(
-                        text=f"{participant_name}\n{'🎥 Video Active' if participant.get('video_enabled') else '📷 Video Off'}",
-                        fg='lightgreen' if participant.get('video_enabled') else 'lightgray'
-                    )
-                slot['participant_id'] = participant.get('client_id')
-                slot['active'] = True
-            else:
-                # Empty slot
+            if slot_id > 0:  # Don't clear slot 0 (local video)
                 if self._widget_exists(slot['label']):
                     slot['label'].config(
                         text=f"Video Slot {slot_id+1}\nNo participant",
@@ -162,6 +149,34 @@ class VideoFrame(ModuleFrame):
                     )
                 slot['participant_id'] = None
                 slot['active'] = False
+        
+        # Assign participants to available slots (skip slot 0 for local video)
+        assigned_participants = set()  # Track assigned participants to prevent duplicates
+        slot_index = 1  # Start from slot 1 (slot 0 is for local video)
+        
+        for participant in active_participants:
+            participant_id = participant.get('client_id')
+            participant_name = participant.get('username', 'Unknown')
+            
+            # Skip if already assigned or if no more slots available
+            if participant_id in assigned_participants or slot_index >= len(self.video_slots):
+                continue
+            
+            # Assign to next available slot
+            if slot_index in self.video_slots:
+                slot = self.video_slots[slot_index]
+                
+                # Update slot with participant info
+                if self._widget_exists(slot['label']):
+                    slot['label'].config(
+                        text=f"{participant_name}\n{'🎥 Video Active' if participant.get('video_enabled') else '📷 Video Off'}",
+                        fg='lightgreen' if participant.get('video_enabled') else 'lightgray'
+                    )
+                slot['participant_id'] = participant_id
+                slot['active'] = True
+                
+                assigned_participants.add(participant_id)
+                slot_index += 1
     
     def update_local_video(self, frame):
         """Update local video display with captured frame (thread-safe)."""
@@ -288,7 +303,7 @@ class VideoFrame(ModuleFrame):
                 # Convert to PhotoImage for tkinter
                 photo = ImageTk.PhotoImage(pil_image)
                 
-                # Find available slot for this client (skip slot 0 which is for local video)
+                # Find or get assigned slot for this client (skip slot 0 which is for local video)
                 slot_id = self._get_or_assign_video_slot(client_id)
                 
                 if slot_id is not None and slot_id in self.video_slots:
@@ -298,6 +313,22 @@ class VideoFrame(ModuleFrame):
                     if not self._widget_exists(slot['frame']):
                         logger.warning(f"Remote video slot frame for {client_id} no longer exists")
                         return
+                    
+                    # Ensure this slot is exclusively for this client
+                    if slot.get('participant_id') and slot.get('participant_id') != client_id:
+                        logger.warning(f"Slot {slot_id} already occupied by {slot.get('participant_id')}, finding new slot")
+                        # Clear this assignment and find a new slot
+                        slot_id = None
+                        for new_slot_id in range(1, len(self.video_slots)):
+                            new_slot = self.video_slots[new_slot_id]
+                            if not new_slot.get('active', False) or new_slot.get('participant_id') is None:
+                                slot_id = new_slot_id
+                                slot = new_slot
+                                break
+                        
+                        if slot_id is None:
+                            logger.error(f"No available slots for client {client_id}")
+                            return
                     
                     # Remove text label and add video display
                     if 'label' in slot and self._widget_exists(slot['label']):
@@ -324,11 +355,11 @@ class VideoFrame(ModuleFrame):
                         # Keep reference to prevent garbage collection
                         slot['video_canvas'].image = photo
                     
-                    # Update slot info
+                    # Update slot info - ensure exclusive assignment
                     slot['participant_id'] = client_id
                     slot['active'] = True
                     
-                    # Add participant name label
+                    # Add or update participant name label
                     if not hasattr(slot, 'name_label') or not self._widget_exists(slot.get('name_label')):
                         slot['name_label'] = tk.Label(
                             slot['frame'], 
@@ -338,8 +369,11 @@ class VideoFrame(ModuleFrame):
                             font=('Arial', 8)
                         )
                         slot['name_label'].pack(side='bottom')
+                    else:
+                        # Update existing label
+                        slot['name_label'].config(text=f"Client {client_id[:8]}")
                     
-                logger.debug(f"Remote video frame updated for client {client_id}")
+                logger.debug(f"Remote video frame updated for client {client_id} in slot {slot_id}")
             
         except Exception as e:
             logger.error(f"Error updating remote video from {client_id}: {e}")
@@ -372,17 +406,48 @@ class VideoFrame(ModuleFrame):
         # Check if client already has a slot
         for slot_id, slot in self.video_slots.items():
             if slot.get('participant_id') == client_id:
+                logger.debug(f"Client {client_id} already assigned to slot {slot_id}")
                 return slot_id
         
         # Find first available slot (skip slot 0 which is for local video)
         for slot_id in range(1, len(self.video_slots)):
             slot = self.video_slots[slot_id]
             if not slot.get('active', False) or slot.get('participant_id') is None:
+                logger.info(f"Assigning client {client_id} to video slot {slot_id}")
                 return slot_id
         
         # No available slots
-        logger.warning(f"No available video slots for client {client_id}")
+        logger.warning(f"No available video slots for client {client_id} - all {len(self.video_slots)-1} remote slots occupied")
         return None
+    
+    def clear_video_slot(self, client_id: str):
+        """Clear video slot for a disconnected client."""
+        for slot_id, slot in self.video_slots.items():
+            if slot.get('participant_id') == client_id:
+                logger.info(f"Clearing video slot {slot_id} for disconnected client {client_id}")
+                
+                # Clear video canvas if it exists
+                if hasattr(slot, 'video_canvas') and self._widget_exists(slot.get('video_canvas')):
+                    slot['video_canvas'].destroy()
+                    delattr(slot, 'video_canvas')
+                
+                # Clear name label if it exists
+                if hasattr(slot, 'name_label') and self._widget_exists(slot.get('name_label')):
+                    slot['name_label'].destroy()
+                    delattr(slot, 'name_label')
+                
+                # Show placeholder label
+                if 'label' in slot and self._widget_exists(slot['label']):
+                    slot['label'].pack(expand=True)
+                    slot['label'].config(
+                        text=f"Video Slot {slot_id+1}\nNo participant",
+                        fg='white'
+                    )
+                
+                # Clear slot assignment
+                slot['participant_id'] = None
+                slot['active'] = False
+                break
 
     def create_dynamic_video_grid(self, active_video_clients: list):
         """Create dynamic grid layout for multiple video feeds."""

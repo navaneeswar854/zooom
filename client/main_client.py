@@ -645,6 +645,10 @@ class CollaborationClient:
             if self.video_manager and left_client_id:
                 self.video_manager.remove_client_video(left_client_id)
             
+            # Clear video slot in GUI for disconnected client
+            if hasattr(self.gui_manager, 'video_frame') and self.gui_manager.video_frame and left_client_id:
+                self.gui_manager.video_frame.clear_video_slot(left_client_id)
+            
             # Update participant list
             if self.connection_manager:
                 participants = self.connection_manager.get_participants()
