@@ -469,7 +469,7 @@ class ScreenManager:
         """Callback for when screen frame is received with comprehensive error handling."""
         try:
             # Validate frame data
-            if not frame_data:
+            if frame_data is None or (hasattr(frame_data, 'size') and frame_data.size == 0) or (isinstance(frame_data, (str, bytes)) and len(frame_data) == 0):
                 logger.warning("Received empty screen frame data")
                 return
             

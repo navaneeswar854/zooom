@@ -106,12 +106,68 @@ This fix resolves the core screen sharing functionality issues:
 - State management is consistent and thread-safe
 - No breaking changes to existing API
 
+## Additional Issue Found and Fixed
+
+### Issue 3: Numpy Array Boolean Context Error
+
+**Problem**: Client 2 was getting the error "The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()" when receiving screen frames.
+
+**Root Cause**: In `client/screen_manager.py`, the code was using `if not frame_data:` to validate frame data. When `frame_data` is a numpy array, this causes a ValueError because numpy arrays cannot be evaluated in a boolean context when they have more than one element.
+
+**Solution**: 
+**File**: `client/screen_manager.py`
+**Method**: `_on_screen_frame_received()`
+
+**Before**:
+```python
+if not frame_data:
+    logger.warning("Received empty screen frame data")
+    return
+```
+
+**After**:
+```python
+if frame_data is None or (hasattr(frame_data, 'size') and frame_data.size == 0) or (isinstance(frame_data, (str, bytes)) and len(frame_data) == 0):
+    logger.warning("Received empty screen frame data")
+    return
+```
+
+This fix properly handles validation for None, empty numpy arrays, empty strings, and empty bytes without causing the ambiguous boolean error.
+
 ## Files Modified
 
 - `server/session_manager.py` - Fixed state management in screen sharing methods
+- `client/screen_manager.py` - Fixed numpy array validation in frame handling
 
 ## Files Added
 
-- `test_screen_sharing_state_fix.py` - Unit tests for the fix
+- `test_screen_sharing_state_fix.py` - Unit tests for the server-side fix
 - `test_screen_sharing_end_to_end_fix.py` - End-to-end workflow tests
+- `test_numpy_array_fix.py` - Tests for the numpy array validation fix
+- `test_complete_screen_sharing_fix.py` - Comprehensive tests for both fixes
 - `SCREEN_SHARING_FIX_SUMMARY.md` - This summary document
+## Fi
+nal Verification
+
+### Test Results Summary
+
+All tests pass, confirming both fixes work correctly:
+
+1. ✅ Server now properly sets/clears `active_screen_sharer`
+2. ✅ Server now clears presenter role when screen sharing stops  
+3. ✅ Client now handles numpy arrays without 'ambiguous' errors
+4. ✅ Multiple clients can take turns presenting
+5. ✅ Screen frames are properly validated and relayed
+6. ✅ End-to-end workflow matches user's expected behavior
+
+### Expected Behavior After Both Fixes
+
+1. **Screen Sharing Visible**: When a presenter starts screen sharing, their frames will be relayed to all other clients and displayed properly.
+
+2. **No More Errors**: Client 2 will no longer see "ambiguous array" errors when receiving screen frames.
+
+3. **Presenter Role Transfer**: When screen sharing stops, the presenter role is cleared, allowing other clients to request it immediately.
+
+4. **State Consistency**: All screen sharing state variables are kept in sync across server and clients.
+
+The fixes resolve all the issues from the user logs and ensure robust screen sharing functionality.
