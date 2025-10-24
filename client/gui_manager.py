@@ -146,26 +146,22 @@ class VideoFrame(ModuleFrame):
                 participant_name = participant.get('username', 'Unknown')
                 
                 # Update slot with participant info
-                slot['label'].config(
-                    text=f"{participant_name}\n{'🎥 Video Active' if participant.get('video_enabled') else '📷 Video Off'}",
-                    fg='lightgreen' if participant.get('video_enabled') else 'lightgray'
-                )
+                if self._widget_exists(slot['label']):
+                    slot['label'].config(
+                        text=f"{participant_name}\n{'🎥 Video Active' if participant.get('video_enabled') else '📷 Video Off'}",
+                        fg='lightgreen' if participant.get('video_enabled') else 'lightgray'
+                    )
                 slot['participant_id'] = participant.get('client_id')
                 slot['active'] = True
             else:
                 # Empty slot
-                slot['label'].config(
-                    text=f"Video Slot {slot_id+1}\nNo participant",
-                    fg='white'
-                )
+                if self._widget_exists(slot['label']):
+                    slot['label'].config(
+                        text=f"Video Slot {slot_id+1}\nNo participant",
+                        fg='white'
+                    )
                 slot['participant_id'] = None
                 slot['active'] = False
-        # Get list of clients with active video
-        active_video_clients = [client_id for client_id, participant in participants.items() 
-                               if participant.get('video_enabled', False)]
-        
-        # Create dynamic grid layout
-        self.create_dynamic_video_grid(active_video_clients)
     
     def update_local_video(self, frame):
         """Update local video display with captured frame (thread-safe)."""
@@ -356,6 +352,17 @@ class VideoFrame(ModuleFrame):
         except Exception:
             return False
     
+    def _widget_exists(self, widget):
+        """Check if a tkinter widget still exists and is valid."""
+        try:
+            if widget is None:
+                return False
+            return widget.winfo_exists()
+        except (tk.TclError, AttributeError):
+            return False
+        except Exception:
+            return False
+
     def _get_or_assign_video_slot(self, client_id: str) -> Optional[int]:
         """Get or assign a video slot for a client."""
         # Check if client already has a slot
