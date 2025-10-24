@@ -7,6 +7,7 @@ import threading
 import time
 import logging
 from typing import Optional, Callable, Tuple
+from collections import deque
 import numpy as np
 from common.messages import UDPPacket, MessageFactory
 from common.platform_utils import PLATFORM_INFO, DeviceUtils, ErrorHandler
