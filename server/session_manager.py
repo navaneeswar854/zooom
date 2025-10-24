@@ -338,6 +338,7 @@ class SessionManager:
                 return False, "You must be the presenter to start screen sharing"
             
             self.screen_sharing_active = True
+            self.active_screen_sharer = client_id  # Set the active screen sharer
             self.last_screen_frame_time = time.time()
             
             logger.info(f"Screen sharing started by presenter {client_id}")
@@ -363,7 +364,16 @@ class SessionManager:
                 return False, "You must be the presenter to stop screen sharing"
             
             self.screen_sharing_active = False
+            self.active_screen_sharer = None  # Clear the active screen sharer
             self.last_screen_frame_time = None
+            
+            # Clear presenter role when screen sharing stops
+            if self.active_presenter:
+                presenter = self.clients.get(self.active_presenter)
+                if presenter:
+                    presenter.is_presenter = False
+                self.active_presenter = None
+                logger.info(f"Presenter role cleared when screen sharing stopped")
             
             logger.info("Screen sharing stopped")
             return True, "Screen sharing stopped successfully"
