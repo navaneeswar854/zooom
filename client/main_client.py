@@ -15,6 +15,7 @@ from client.audio_manager import AudioManager
 from client.video_capture import VideoCapture
 from client.video_playback import VideoManager
 from client.screen_manager import ScreenManager
+from client.extreme_video_optimizer import extreme_video_optimizer
 from common.messages import TCPMessage, UDPPacket, MessageType
 from common.platform_utils import PLATFORM_INFO, log_platform_info, DeviceUtils, ErrorHandler
 
@@ -216,10 +217,11 @@ class CollaborationClient:
                     )
                     
                     # Start video system for receiving video
-            # Enable extreme video optimization
-            extreme_video_optimizer.start_optimization()
-            extreme_video_optimizer.enable_ultra_fast_mode()
-            extreme_video_optimizer.enable_anti_flicker_mode()
+                    # Enable extreme video optimization
+                    extreme_video_optimizer.start_optimization()
+                    extreme_video_optimizer.enable_ultra_fast_mode()
+                    extreme_video_optimizer.enable_anti_flicker_mode()
+                    
                     self.video_manager.start_video_system()
                     
                     logger.info("Video system initialized")
