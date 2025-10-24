@@ -242,13 +242,9 @@ class VideoFrame(ModuleFrame):
                         logger.warning("Local video slot frame no longer exists")
                         return
                     
-                    # Hide the placeholder label first
-                    if 'label' in slot and self._widget_exists(slot['label']):
-                        slot['label'].pack_forget()
-                    
-                    # Destroy any existing video widget to prevent stacking
-                    if hasattr(slot, 'video_widget') and self._widget_exists(slot.get('video_widget')):
-                        slot['video_widget'].destroy()
+                    # COMPLETELY CLEAR THE SLOT - destroy ALL child widgets
+                    for child in slot['frame'].winfo_children():
+                        child.destroy()
                     
                     # Create new video label widget
                     slot['video_widget'] = tk.Label(
@@ -259,20 +255,19 @@ class VideoFrame(ModuleFrame):
                     slot['video_widget'].pack(fill='both', expand=True)
                     slot['video_widget'].image = photo  # Keep reference
                     
+                    # Create new name label
+                    slot['name_label'] = tk.Label(
+                        slot['frame'], 
+                        text="You (Local)", 
+                        fg='lightgreen', 
+                        bg='black',
+                        font=('Arial', 8)
+                    )
+                    slot['name_label'].pack(side='bottom')
+                    
                     # Update slot info
                     slot['participant_id'] = 'local'
                     slot['active'] = True
-                    
-                    # Add "You" label
-                    if not hasattr(slot, 'name_label') or not self._widget_exists(slot.get('name_label')):
-                        slot['name_label'] = tk.Label(
-                            slot['frame'], 
-                            text="You (Local)", 
-                            fg='lightgreen', 
-                            bg='black',
-                            font=('Arial', 8)
-                        )
-                        slot['name_label'].pack(side='bottom')
                     
                 logger.debug("Local video frame updated")
             
@@ -362,13 +357,9 @@ class VideoFrame(ModuleFrame):
                             logger.error(f"No available slots for client {client_id}")
                             return
                     
-                    # Remove text label and add video display
-                    if 'label' in slot and self._widget_exists(slot['label']):
-                        slot['label'].pack_forget()
-                    
-                    # Destroy any existing video widget to prevent stacking
-                    if hasattr(slot, 'video_widget') and self._widget_exists(slot.get('video_widget')):
-                        slot['video_widget'].destroy()
+                    # COMPLETELY CLEAR THE SLOT - destroy ALL child widgets
+                    for child in slot['frame'].winfo_children():
+                        child.destroy()
                     
                     # Create new video label widget
                     slot['video_widget'] = tk.Label(
@@ -379,23 +370,19 @@ class VideoFrame(ModuleFrame):
                     slot['video_widget'].pack(fill='both', expand=True)
                     slot['video_widget'].image = photo  # Keep reference
                     
+                    # Create new name label
+                    slot['name_label'] = tk.Label(
+                        slot['frame'], 
+                        text=f"Client {client_id[:8]}", 
+                        fg='lightblue', 
+                        bg='black',
+                        font=('Arial', 8)
+                    )
+                    slot['name_label'].pack(side='bottom')
+                    
                     # Update slot info - ensure exclusive assignment
                     slot['participant_id'] = client_id
                     slot['active'] = True
-                    
-                    # Add or update participant name label
-                    if not hasattr(slot, 'name_label') or not self._widget_exists(slot.get('name_label')):
-                        slot['name_label'] = tk.Label(
-                            slot['frame'], 
-                            text=f"Client {client_id[:8]}", 
-                            fg='lightblue', 
-                            bg='black',
-                            font=('Arial', 8)
-                        )
-                        slot['name_label'].pack(side='bottom')
-                    else:
-                        # Update existing label
-                        slot['name_label'].config(text=f"Client {client_id[:8]}")
                     
                 logger.debug(f"Remote video frame updated for client {client_id} in slot {slot_id}")
             
@@ -449,26 +436,24 @@ class VideoFrame(ModuleFrame):
             if slot.get('participant_id') == client_id:
                 logger.info(f"Clearing video slot {slot_id} for disconnected client {client_id}")
                 
-                # Clear video canvas if it exists
-                if hasattr(slot, 'video_canvas') and self._widget_exists(slot.get('video_canvas')):
-                    slot['video_canvas'].destroy()
-                    delattr(slot, 'video_canvas')
+                # COMPLETELY CLEAR THE SLOT - destroy ALL child widgets
+                for child in slot['frame'].winfo_children():
+                    child.destroy()
                 
-                # Clear name label if it exists
-                if hasattr(slot, 'name_label') and self._widget_exists(slot.get('name_label')):
-                    slot['name_label'].destroy()
-                    delattr(slot, 'name_label')
-                
-                # Show placeholder label
-                if 'label' in slot and self._widget_exists(slot['label']):
-                    slot['label'].pack(expand=True)
-                    slot['label'].config(
-                        text=f"Video Slot {slot_id+1}\nNo participant",
-                        fg='white'
-                    )
+                # Recreate placeholder label
+                slot_text = "Your Video\n(Enable video)" if slot_id == 0 else f"Video Slot {slot_id+1}\nNo participant"
+                placeholder_label = tk.Label(
+                    slot['frame'], 
+                    text=slot_text, 
+                    fg='lightgreen' if slot_id == 0 else 'white', 
+                    bg='black',
+                    font=('Arial', 10)
+                )
+                placeholder_label.pack(expand=True)
+                slot['label'] = placeholder_label
                 
                 # Clear slot assignment
-                slot['participant_id'] = None
+                slot['participant_id'] = 'local' if slot_id == 0 else None
                 slot['active'] = False
                 break
 
