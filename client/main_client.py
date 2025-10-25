@@ -915,16 +915,19 @@ class CollaborationClient:
             logger.error(f"Error handling audio packet: {e}")
     
     def _on_video_packet(self, packet: UDPPacket):
-        """Handle incoming video packets."""
+        """Handle incoming video packets with enhanced processing."""
         try:
+            logger.debug(f"Received video packet from {packet.sender_id}, seq: {packet.sequence_num}")
+            
             if self.video_manager:
+                # Process video packet
                 self.video_manager.process_incoming_video(packet)
+                logger.debug(f"Video packet processed by video manager")
+            else:
+                logger.warning("Video manager not available for packet processing")
         
         except Exception as e:
             logger.error(f"Error handling video packet: {e}")
-    
-    # Media capture methods (placeholders for future implementation)
-    
     def _start_video_capture(self):
         """Start video capture using OpenCV."""
         try:

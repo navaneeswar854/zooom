@@ -396,9 +396,11 @@ class VideoFrame(ModuleFrame):
             except:
                 pass  # Ignore errors when showing error message
     def update_remote_video(self, client_id: str, frame):
-        """Update remote video display with correct positioning (top-right corner)."""
+        """Update remote video display with enhanced error handling."""
         try:
-            # Use enhanced positioning system
+            logger.debug(f"Updating remote video for client {client_id}")
+            
+            # Get or assign video slot
             slot_id = self._get_video_slot_stable(client_id)
             
             if slot_id is not None and slot_id in self.video_slots:
@@ -406,10 +408,12 @@ class VideoFrame(ModuleFrame):
                 self.video_slots[slot_id]['participant_id'] = client_id
                 self.video_slots[slot_id]['active'] = True
                 
-                # Create or update video display with correct positioning
-                self._create_positioned_video_display(self.video_slots[slot_id]['frame'], frame, client_id, slot_id)
+                # Create video display
+                self._create_positioned_video_display(
+                    self.video_slots[slot_id]['frame'], frame, client_id, slot_id
+                )
                 
-                logger.debug(f"Updated remote video for {client_id} in slot {slot_id}")
+                logger.debug(f"Remote video updated for {client_id} in slot {slot_id}")
             else:
                 logger.warning(f"No available video slot for remote client {client_id}")
                 
