@@ -182,10 +182,27 @@ class VideoRenderer:
             capture_timestamp = getattr(video_packet, 'capture_timestamp', time.perf_counter())
             network_timestamp = getattr(video_packet, 'network_timestamp', time.perf_counter())
             
-            # Validate timestamps
+            # Validate and correct timestamps for chronological order
             current_time = time.perf_counter()
-            if capture_timestamp > current_time + 1.0:  # Future timestamp (clock skew)
+            
+            # Handle future timestamps (clock skew)
+            if capture_timestamp > current_time + 1.0:
                 capture_timestamp = current_time
+                logger.debug(f"Corrected future timestamp for {client_id}")
+            
+            # Handle duplicate or old timestamps
+            if hasattr(self, '_last_capture_timestamps'):
+                if client_id not in self._last_capture_timestamps:
+                    self._last_capture_timestamps = {}
+                
+                if client_id in self._last_capture_timestamps:
+                    last_timestamp = self._last_capture_timestamps[client_id]
+                    if capture_timestamp <= last_timestamp:
+                        # Ensure chronological progression
+                        capture_timestamp = last_timestamp + 0.001
+                        logger.debug(f"Adjusted timestamp for chronological order: {client_id}")
+                
+                self._last_capture_timestamps[client_id] = capture_timestamp
             
             # Decompress frame with error handling
             frame = self._decompress_frame_stable(video_packet.data)

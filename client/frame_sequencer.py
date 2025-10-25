@@ -201,12 +201,13 @@ class FrameSequencer:
         if self.last_displayed_sequence == -1:
             return True
         
-        # Check chronological order by timestamp
+        # STRICT CHRONOLOGICAL ORDERING: Prevent any back-and-forth display
         if frame.capture_timestamp < self.last_displayed_timestamp:
-            # Frame is older than last displayed - only allow if very recent
+            # Frame is older than last displayed - reject to prevent temporal jumping
             time_diff = self.last_displayed_timestamp - frame.capture_timestamp
-            if time_diff > 0.016:  # More than half a frame interval (60 FPS)
-                logger.debug(f"Skipping old frame {frame.sequence_number} (time diff: {time_diff:.3f}s)")
+            if time_diff > 0.005:  # More than 5ms difference - reject old frames
+                logger.debug(f"Rejecting old frame {frame.sequence_number} (time diff: {time_diff:.3f}s) to prevent back-and-forth")
+                self.stats['frames_dropped_old'] += 1
                 return False
         
         # Check sequence order for additional validation
@@ -216,22 +217,22 @@ class FrameSequencer:
         if sequence_gap == 1:
             return True
         
-        # Frame is ahead in sequence
+        # Frame is ahead in sequence - handle gaps intelligently
         if sequence_gap > 1:
-            # For small gaps, wait briefly for missing frames
+            # For small gaps (1-2), wait briefly for missing frames
             if sequence_gap <= 2:
                 wait_time = current_time - frame.arrival_timestamp
-                if wait_time < 0.033:  # Wait up to 33ms (one frame at 30 FPS)
+                if wait_time < 0.01:  # Wait up to 10ms for small gaps
                     return False
             
-            # Display frame after timeout or for large gaps
+            # For larger gaps or after timeout, display frame to maintain flow
             self.stats['sequence_gaps'] += max(0, sequence_gap - 1)
             return True
         
         # Frame is behind in sequence but chronologically newer
         if sequence_gap <= 0:
-            # Only display if timestamp is newer
-            return frame.capture_timestamp > self.last_displayed_timestamp
+            # Only display if timestamp is significantly newer (prevent duplicates)
+            return frame.capture_timestamp > self.last_displayed_timestamp + 0.001  # 1ms buffer
         
         return True
     

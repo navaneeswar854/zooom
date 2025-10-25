@@ -362,12 +362,20 @@ class VideoCapture:
             frame: Captured video frame from OpenCV
         """
         try:
-            # Capture precise timestamp for frame sequencing
+            # Capture precise timestamp for frame sequencing with high precision
             capture_timestamp = time.perf_counter()
             relative_timestamp = capture_timestamp - self.capture_start_timestamp if self.capture_start_timestamp else 0
             
-            # Store timestamp for sequencing
+            # Store timestamp for sequencing with chronological validation
             self.frame_timestamps.append(capture_timestamp)
+            
+            # Validate frame timing for chronological order
+            if len(self.frame_timestamps) > 1:
+                prev_timestamp = self.frame_timestamps[-2]
+                if capture_timestamp <= prev_timestamp:
+                    # Adjust timestamp to maintain chronological order
+                    capture_timestamp = prev_timestamp + 0.001  # 1ms increment
+                    logger.debug(f"Adjusted timestamp to maintain chronological order")
             
             # Stable frame processing with error handling
             
@@ -386,7 +394,7 @@ class VideoCapture:
             compressed_frame = self._compress_frame_stable(frame)
             
             if compressed_frame is not None:
-                # Stable packet transmission with timestamps
+                # Stable packet transmission with enhanced timestamps
                 self._send_video_packet_stable_sequenced(compressed_frame, capture_timestamp, relative_timestamp)
             else:
                 self.stats['frames_dropped'] += 1
