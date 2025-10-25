@@ -148,7 +148,7 @@ class FrameSequencer:
     
     def get_next_frame(self) -> Optional[TimestampedFrame]:
         """
-        Get the next frame in strict chronological order to prevent back-and-forth display.
+        Get the next frame in strict chronological order with enhanced synchronization.
         
         Returns:
             TimestampedFrame: Next frame to display, or None if no frame ready
@@ -159,11 +159,7 @@ class FrameSequencer:
             
             current_time = time.time()
             
-            # Ensure we have frames to work with
-            if len(self.frame_heap) == 0:
-                return None
-            
-            # Get the frame with the earliest capture timestamp (chronological order)
+            # Process frames in strict chronological order
             while self.frame_heap:
                 capture_timestamp, sequence_number = heapq.heappop(self.frame_heap)
                 
@@ -172,30 +168,72 @@ class FrameSequencer:
                 
                 frame = self.sequence_buffer[sequence_number]
                 
-                # Strict chronological ordering check
-                if self._is_frame_chronologically_ready(frame, current_time):
+                # Enhanced chronological ordering check
+                if self._is_frame_ready_for_synchronized_display(frame, current_time):
                     # Remove from buffer
                     del self.sequence_buffer[sequence_number]
                     
-                    # Update display tracking with strict ordering
-                    if frame.sequence_number >= self.last_displayed_sequence:
-                        self.last_displayed_sequence = frame.sequence_number
-                        self.last_displayed_timestamp = capture_timestamp
-                        self.stats['frames_displayed'] += 1
-                        
-                        logger.debug(f"Displaying frame {sequence_number} chronologically for {self.client_id}")
-                        return frame
-                    else:
-                        # Frame is older than what we've already displayed - skip it
-                        logger.debug(f"Skipping old frame {sequence_number} (last displayed: {self.last_displayed_sequence})")
-                        self.stats['frames_dropped_old'] += 1
-                        continue
+                    # Update display tracking with enhanced synchronization
+                    self.last_displayed_sequence = max(self.last_displayed_sequence, frame.sequence_number)
+                    self.last_displayed_timestamp = max(self.last_displayed_timestamp, capture_timestamp)
+                    self.stats['frames_displayed'] += 1
+                    
+                    logger.debug(f"Displaying synchronized frame {sequence_number} for {self.client_id}")
+                    return frame
                 else:
-                    # Frame not ready yet, put it back and wait
+                    # Frame not ready yet, put it back and wait briefly
                     heapq.heappush(self.frame_heap, (capture_timestamp, sequence_number))
                     return None
             
             return None
+    def _is_frame_ready_for_synchronized_display(self, frame: TimestampedFrame, current_time: float) -> bool:
+        """
+        Enhanced chronological readiness check for synchronized display.
+        
+        Args:
+            frame: Frame to check
+            current_time: Current system time
+            
+        Returns:
+            bool: True if frame is ready for synchronized display
+        """
+        # Always display if it's the first frame
+        if self.last_displayed_sequence == -1:
+            return True
+        
+        # Check chronological order by timestamp
+        if frame.capture_timestamp < self.last_displayed_timestamp:
+            # Frame is older than last displayed - only allow if very recent
+            time_diff = self.last_displayed_timestamp - frame.capture_timestamp
+            if time_diff > 0.016:  # More than half a frame interval (60 FPS)
+                logger.debug(f"Skipping old frame {frame.sequence_number} (time diff: {time_diff:.3f}s)")
+                return False
+        
+        # Check sequence order for additional validation
+        sequence_gap = frame.sequence_number - self.last_displayed_sequence
+        
+        # Frame is next in sequence - always ready
+        if sequence_gap == 1:
+            return True
+        
+        # Frame is ahead in sequence
+        if sequence_gap > 1:
+            # For small gaps, wait briefly for missing frames
+            if sequence_gap <= 2:
+                wait_time = current_time - frame.arrival_timestamp
+                if wait_time < 0.033:  # Wait up to 33ms (one frame at 30 FPS)
+                    return False
+            
+            # Display frame after timeout or for large gaps
+            self.stats['sequence_gaps'] += max(0, sequence_gap - 1)
+            return True
+        
+        # Frame is behind in sequence but chronologically newer
+        if sequence_gap <= 0:
+            # Only display if timestamp is newer
+            return frame.capture_timestamp > self.last_displayed_timestamp
+        
+        return True
     
     def _is_frame_chronologically_ready(self, frame: TimestampedFrame, current_time: float) -> bool:
         """

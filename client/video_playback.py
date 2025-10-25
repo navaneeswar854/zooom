@@ -175,18 +175,23 @@ class VideoRenderer:
             self._handle_processing_error(client_id)
     
     def _process_packet_sequenced(self, client_id: str, video_packet: UDPPacket):
-        """Process packet with frame sequencing for chronological order."""
+        """Process packet with enhanced frame sequencing for perfect synchronization."""
         try:
-            # Extract timing information from packet
+            # Extract timing information from packet with validation
             sequence_number = video_packet.sequence_num
             capture_timestamp = getattr(video_packet, 'capture_timestamp', time.perf_counter())
             network_timestamp = getattr(video_packet, 'network_timestamp', time.perf_counter())
+            
+            # Validate timestamps
+            current_time = time.perf_counter()
+            if capture_timestamp > current_time + 1.0:  # Future timestamp (clock skew)
+                capture_timestamp = current_time
             
             # Decompress frame with error handling
             frame = self._decompress_frame_stable(video_packet.data)
             
             if frame is not None:
-                # Add frame to sequencer for chronological ordering
+                # Add frame to sequencer for chronological ordering with enhanced sync
                 success = frame_sequencing_manager.add_frame(
                     client_id=client_id,
                     sequence_number=sequence_number,
@@ -201,24 +206,40 @@ class VideoRenderer:
                         if client_id in self.video_streams:
                             self.video_streams[client_id]['frames_decoded'] += 1
                             self.video_streams[client_id]['consecutive_errors'] = 0
+                            
+                    logger.debug(f"Added synchronized frame {sequence_number} for {client_id}")
                 else:
-                    logger.debug(f"Frame {sequence_number} rejected by sequencer for {client_id}")
+                    logger.debug(f"Frame {sequence_number} rejected by synchronizer for {client_id}")
             else:
                 self._handle_processing_error(client_id)
                 
         except Exception as e:
-            logger.error(f"Sequenced packet processing error for {client_id}: {e}")
+            logger.error(f"Synchronized packet processing error for {client_id}: {e}")
             self._handle_processing_error(client_id)
-    
     def _display_sequenced_frame(self, client_id: str, frame_data: np.ndarray):
-        """Display frame that has been sequenced for chronological order."""
+        """Display frame that has been sequenced for perfect chronological order."""
         try:
-            # Display frame through callback system
+            # Validate frame data
+            if frame_data is None or frame_data.size == 0:
+                logger.warning(f"Invalid frame data for {client_id}")
+                return
+            
+            # Display frame through callback system with synchronization
             if self.frame_update_callback:
+                # Add timestamp for synchronization tracking
+                display_timestamp = time.perf_counter()
+                
+                # Call the callback with synchronized frame
                 self.frame_update_callback(client_id, frame_data)
+                
+                # Update statistics
+                with self._lock:
+                    self.stats['total_frames_rendered'] += 1
+                    
+                logger.debug(f"Displayed synchronized frame for {client_id} at {display_timestamp:.6f}")
+            
         except Exception as e:
-            logger.error(f"Sequenced frame display error for {client_id}: {e}")
-    
+            logger.error(f"Synchronized frame display error for {client_id}: {e}")
     def _process_packet_stable(self, client_id: str, packet_data: bytes):
         """Process packet with stability and error handling."""
         try:

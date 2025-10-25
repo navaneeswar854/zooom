@@ -396,31 +396,25 @@ class VideoFrame(ModuleFrame):
             except:
                 pass  # Ignore errors when showing error message
     def update_remote_video(self, client_id: str, frame):
-        """Update remote video display with ultra-stability - zero shaking."""
+        """Update remote video display with correct positioning (top-right corner)."""
         try:
-            # Use ultra-stable system to completely prevent interface shaking
-            
-            # Find or assign video slot
+            # Use enhanced positioning system
             slot_id = self._get_video_slot_stable(client_id)
+            
             if slot_id is not None and slot_id in self.video_slots:
-                # Register with ultra-stable system
-                ultra_stable_manager.register_video_slot(client_id, self.video_slots[slot_id])
-                
-                # Update slot assignment
+                # Assign slot to this client
                 self.video_slots[slot_id]['participant_id'] = client_id
                 self.video_slots[slot_id]['active'] = True
                 
-                # Update with ultra-stable system (never causes shaking)
-                success = ultra_stable_manager.update_video_frame(client_id, frame)
+                # Create or update video display with correct positioning
+                self._create_positioned_video_display(self.video_slots[slot_id]['frame'], frame, client_id, slot_id)
                 
-                if not success:
-                    # Frame was queued or rate limited - this is normal and prevents shaking
-                    pass
-            
+                logger.debug(f"Updated remote video for {client_id} in slot {slot_id}")
+            else:
+                logger.warning(f"No available video slot for remote client {client_id}")
+                
         except Exception as e:
-            logger.error(f"Ultra-stable remote video error for {client_id}: {e}")
-            # Error recovery handled by ultra-stable system
-    
+            logger.error(f"Error updating remote video for {client_id}: {e}")
     def _update_remote_video_safe(self, client_id: str, frame):
         """Thread-safe implementation of remote video update."""
         try:
@@ -630,14 +624,26 @@ class VideoFrame(ModuleFrame):
             logger.error(f"Error creating stable video display for {client_id}: {e}")
     
     def _get_video_slot_stable(self, client_id: str) -> Optional[int]:
-        """Get video slot with stability checks."""
+        """Get video slot with enhanced positioning - remote video goes to top-right."""
         try:
             # Check existing assignment
             for slot_id, slot in self.video_slots.items():
                 if slot.get('participant_id') == client_id:
                     return slot_id
             
-            # Find available slot (skip slot 0 for local)
+            # For remote clients, prioritize top-right corner (slot 1)
+            if client_id != 'local':
+                # Preferred order for remote clients: top-right (1), bottom-right (3), bottom-left (2)
+                preferred_slots = [1, 3, 2]  # Skip slot 0 (local video)
+                
+                for slot_id in preferred_slots:
+                    if slot_id in self.video_slots:
+                        slot = self.video_slots[slot_id]
+                        if not slot.get('active', False) or slot.get('participant_id') is None:
+                            logger.info(f"Assigning remote client {client_id} to slot {slot_id} (position priority)")
+                            return slot_id
+            
+            # Fallback: find any available slot (skip slot 0 for local)
             for slot_id in range(1, len(self.video_slots)):
                 slot = self.video_slots[slot_id]
                 if not slot.get('active', False):
@@ -647,7 +653,6 @@ class VideoFrame(ModuleFrame):
         except Exception as e:
             logger.error(f"Error getting video slot for {client_id}: {e}")
             return None
-    
     def _show_video_error(self, client_id: str, error_message: str):
         """Show video error message safely."""
         try:
