@@ -1,29 +1,30 @@
-# Core dependencies for LAN Collaboration Suite
-# GUI Framework (built-in with Python)
-# tkinter - included with Python
+# Core dependencies for Goom Video Conferencing Platform
+opencv-python>=4.5.0
+numpy>=1.21.0
+Pillow>=8.3.0
+pyautogui>=0.9.53
+pygetwindow>=0.0.9
 
-# Audio processing
-pyaudio>=0.2.11
+# GUI and threading
+tkinter  # Usually included with Python
 
-# Video processing
-opencv-python>=4.8.0
+# Network and communication
+socket  # Built-in Python module
+threading  # Built-in Python module
+json  # Built-in Python module
+time  # Built-in Python module
+logging  # Built-in Python module
+os  # Built-in Python module
+sys  # Built-in Python module
+collections  # Built-in Python module
+typing  # Built-in Python module
+dataclasses  # Built-in Python module
 
-# Screen capture and automation
-pyautogui>=0.9.54
+# Platform-specific dependencies (install as needed)
+# Windows: pygetwindow (included above)
+# Linux: scrot, xvfb (system packages)
+# macOS: No additional packages needed
 
-# Windows-specific dependencies
-pygetwindow>=0.0.9; sys_platform == "win32"
-
-# Optional: Enhanced audio processing
-# numpy>=1.21.0  # Usually comes with opencv-python
-
-# Development and testing dependencies (optional)
-# pytest>=7.0.0
-# pytest-cov>=4.0.0
-# flake8>=5.0.0
-
-# Note: All other dependencies are part of Python standard library:
-# - socket, threading, json, time, os, sys, logging
-# - tkinter (GUI framework)
-# - pathlib, datetime, collections
-# - concurrent.futures, subprocess
+# Development and testing (optional)
+pytest>=6.0.0
+pytest-cov>=2.12.0

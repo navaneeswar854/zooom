@@ -1,0 +1,4 @@
+This is a comprehensive test file for the LAN Collaboration Suite.
+Testing file transfer functionality with multiple lines.
+Line 3: Special characters: !@#$%^&*()
+Line 4: Unicode: 🎉 ✓ ❌ 📁 💻
