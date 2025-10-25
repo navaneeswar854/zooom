@@ -54,10 +54,10 @@ class ScreenCapture:
     """
     
     # Screen capture configuration constants
-    DEFAULT_FPS = 2  # Very low FPS to prevent connection issues
-    COMPRESSION_QUALITY = 30  # Lower quality to reduce frame size
-    MAX_WIDTH = 800  # Smaller resolution to prevent large frames
-    MAX_HEIGHT = 600
+    DEFAULT_FPS = 15  # Optimized FPS for seamless screen sharing
+    COMPRESSION_QUALITY = 60  # Higher quality for better visual experience
+    MAX_WIDTH = 1280  # Higher resolution for better screen sharing
+    MAX_HEIGHT = 720
     
     def __init__(self, client_id: str, connection_manager=None):
         """
@@ -470,9 +470,9 @@ class ScreenCapture:
         """
         with self._lock:
             if fps is not None:
-                self.fps = max(1, min(15, fps))  # Clamp to reasonable range for screen sharing
+                self.fps = max(5, min(30, fps))  # Optimized range for seamless screen sharing
             if quality is not None:
-                self.compression_quality = max(10, min(100, quality))
+                self.compression_quality = max(30, min(95, quality))  # Higher quality range
             if region is not None:
                 self.capture_region = region
         
