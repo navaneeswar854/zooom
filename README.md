@@ -349,4 +349,5 @@ This is a complete, self-contained collaboration suite. The codebase is well-doc
 
 ---
 
-**Ready to collaborate? Start the server, connect your clients, and enjoy seamless LAN-based communication!** 🚀
+**Ready to collaborate? Start the server, connect your clients, and enjoy seamless LAN-based communication!** 🚀#   g o o m  
+ 
