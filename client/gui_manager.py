@@ -409,8 +409,8 @@ class VideoFrame(ModuleFrame):
                 self.video_slots[slot_id]['active'] = True
                 
                 # Create video display
-                self._create_positioned_video_display(
-                    self.video_slots[slot_id]['frame'], frame, client_id, slot_id
+                self._create_stable_video_display(
+                    self.video_slots[slot_id]['frame'], frame, client_id
                 )
                 
                 logger.debug(f"Remote video updated for {client_id} in slot {slot_id}")

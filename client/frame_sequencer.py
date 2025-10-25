@@ -201,14 +201,18 @@ class FrameSequencer:
         if self.last_displayed_sequence == -1:
             return True
         
-        # STRICT CHRONOLOGICAL ORDERING: Prevent any back-and-forth display
+        # ENHANCED CHRONOLOGICAL ORDERING: Prevent back-and-forth display with better tolerance
         if frame.capture_timestamp < self.last_displayed_timestamp:
-            # Frame is older than last displayed - reject to prevent temporal jumping
+            # Frame is older than last displayed - only reject if significantly older
             time_diff = self.last_displayed_timestamp - frame.capture_timestamp
-            if time_diff > 0.005:  # More than 5ms difference - reject old frames
+            if time_diff > 0.033:  # More than one frame interval (30 FPS) - reject old frames
                 logger.debug(f"Rejecting old frame {frame.sequence_number} (time diff: {time_diff:.3f}s) to prevent back-and-forth")
                 self.stats['frames_dropped_old'] += 1
                 return False
+            else:
+                # Frame is slightly older but within tolerance - allow it
+                logger.debug(f"Allowing slightly old frame {frame.sequence_number} (time diff: {time_diff:.3f}s)")
+                return True
         
         # Check sequence order for additional validation
         sequence_gap = frame.sequence_number - self.last_displayed_sequence
