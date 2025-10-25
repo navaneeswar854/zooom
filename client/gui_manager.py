@@ -187,24 +187,21 @@ class VideoFrame(ModuleFrame):
                 slot_index += 1
     
     def update_local_video(self, frame):
-        """Update local video display with ultra-stability - zero shaking."""
+        """Update local video display with proper frame sequencing."""
         try:
-            client_id = 'local'
-            
-            # Use ultra-stable system to completely prevent shaking
-            if 0 in self.video_slots:
-                ultra_stable_manager.register_video_slot(client_id, self.video_slots[0])
-                
-                # Update with ultra-stable system
-                success = ultra_stable_manager.update_video_frame(client_id, frame)
-                
-                if not success:
-                    # Frame was queued or rate limited - this is normal
-                    pass
+            # Use direct stable video display for proper frame sequencing
+            self._update_local_video_safe_stable(frame)
             
         except Exception as e:
-            logger.error(f"Ultra-stable local video error: {e}")
-            # Error recovery handled by ultra-stable system
+            logger.error(f"Local video display error: {e}")
+            # Fallback to ultra-stable system if needed
+            try:
+                client_id = 'local'
+                if 0 in self.video_slots:
+                    ultra_stable_manager.register_video_slot(client_id, self.video_slots[0])
+                    ultra_stable_manager.update_video_frame(client_id, frame)
+            except Exception as fallback_error:
+                logger.error(f"Fallback local video error: {fallback_error}")
     
     def _update_local_video_extreme(self, frame):
         """Extreme optimization local video update - zero flickering."""
