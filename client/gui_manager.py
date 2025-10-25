@@ -680,7 +680,7 @@ class VideoFrame(ModuleFrame):
             logger.error(f"Error showing video error for {client_id}: {e}")
     
     def clear_video_slot(self, client_id: str):
-        """Clear video slot for a disconnected client with ultra-stability."""
+        """Clear video slot for a disconnected client with ultra-stability and black screen."""
         try:
             # Remove from ultra-stable manager
             ultra_stable_manager.unregister_video_slot(client_id)
@@ -692,9 +692,26 @@ class VideoFrame(ModuleFrame):
                 if slot.get('participant_id') == client_id:
                     logger.info(f"Clearing ultra-stable video slot {slot_id} for client {client_id}")
                     
-                    # Clear slot assignment
-                    slot['participant_id'] = 'local' if slot_id == 0 else None
-                    slot['active'] = False
+                    # COMPLETELY CLEAR THE SLOT - destroy ALL child widgets to show black screen
+                    if self._widget_exists(slot['frame']):
+                        for child in slot['frame'].winfo_children():
+                            child.destroy()
+                        
+                        # Create black screen placeholder
+                        black_label = tk.Label(
+                            slot['frame'], 
+                            text="No Video", 
+                            bg='black', 
+                            fg='white',
+                            font=('Arial', 10)
+                        )
+                        black_label.pack(fill='both', expand=True)
+                        
+                        # Update slot references
+                        slot['video_widget'] = black_label
+                        slot['name_label'] = None
+                        slot['participant_id'] = 'local' if slot_id == 0 else None
+                        slot['active'] = False
                     break
                     
         except Exception as e:
@@ -1347,6 +1364,11 @@ class ScreenShareFrame(ModuleFrame):
     def display_screen_frame(self, frame_data, presenter_name: str):
         """Display a screen frame from the presenter with improved scaling and centering."""
         try:
+            # Handle None frame data (black screen when presenter stops)
+            if frame_data is None:
+                self._show_black_screen()
+                return
+                
             import io
             from PIL import Image, ImageTk
             
@@ -1516,6 +1538,31 @@ class ScreenShareFrame(ModuleFrame):
             logger.info("Screen sharing button reset to initial state")
         except Exception as e:
             logger.error(f"Error resetting screen sharing button: {e}")
+
+    def _show_black_screen(self):
+        """Show black screen when presenter stops sharing."""
+        try:
+            # Clear canvas and show black screen
+            self.screen_canvas.delete("all")
+            self.screen_canvas.config(bg='black')
+            
+            # Show "No screen sharing" message
+            self.screen_canvas.create_text(
+                self.screen_canvas.winfo_width() // 2,
+                self.screen_canvas.winfo_height() // 2,
+                text="No screen sharing active",
+                fill="white",
+                font=("Arial", 12)
+            )
+            
+            # Update status
+            self._safe_label_update(self.screen_label, text="No screen sharing active")
+            self.current_presenter_name = None
+            
+            logger.info("Displaying black screen - screen sharing stopped")
+            
+        except Exception as e:
+            logger.error(f"Error showing black screen: {e}")
 
     def cleanup_gui_elements(self):
         """Safely cleanup GUI elements to prevent tkinter errors."""

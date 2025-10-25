@@ -53,9 +53,9 @@ class ScreenCapture:
     - Cross-platform screen capture support
     """
     
-    # Screen capture configuration constants
-    DEFAULT_FPS = 15  # Optimized FPS for seamless screen sharing
-    COMPRESSION_QUALITY = 60  # Higher quality for better visual experience
+    # Screen capture configuration constants - Optimized for high FPS
+    DEFAULT_FPS = 30  # Increased FPS for smooth screen sharing
+    COMPRESSION_QUALITY = 70  # Higher quality for better visual experience
     MAX_WIDTH = 1280  # Higher resolution for better screen sharing
     MAX_HEIGHT = 720
     
@@ -470,9 +470,9 @@ class ScreenCapture:
         """
         with self._lock:
             if fps is not None:
-                self.fps = max(5, min(30, fps))  # Optimized range for seamless screen sharing
+                self.fps = max(10, min(60, fps))  # Extended range for high FPS screen sharing
             if quality is not None:
-                self.compression_quality = max(30, min(95, quality))  # Higher quality range
+                self.compression_quality = max(40, min(95, quality))  # Higher quality range
             if region is not None:
                 self.capture_region = region
         
@@ -539,19 +539,22 @@ class ScreenCapture:
         logger.info("Screen capture stopped")
     
     def _capture_loop(self):
-        """Main screen capture loop running in separate thread."""
+        """Main screen capture loop running in separate thread with optimized performance."""
         logger.info("Screen capture loop started")
         
         frame_interval = 1.0 / self.fps  # Time between frames
         last_frame_time = 0
         
+        # Performance optimization: reduce sleep time for higher FPS
+        sleep_time = max(0.001, frame_interval / 10)  # Adaptive sleep time
+        
         while self.is_capturing:
             try:
                 current_time = time.time()
                 
-                # Maintain frame rate
+                # Maintain frame rate with optimized timing
                 if current_time - last_frame_time < frame_interval:
-                    time.sleep(0.01)  # Small sleep to prevent busy waiting
+                    time.sleep(sleep_time)  # Optimized sleep time
                     continue
                 
                 # Capture screen
@@ -560,7 +563,7 @@ class ScreenCapture:
                 if screen_frame is None:
                     logger.warning("Failed to capture screen")
                     self.stats['capture_errors'] += 1
-                    time.sleep(0.1)  # Wait before retrying
+                    time.sleep(0.05)  # Reduced wait time for faster recovery
                     continue
                 
                 # Process and send frame
@@ -574,7 +577,7 @@ class ScreenCapture:
                 if self.is_capturing:  # Only log if we're still supposed to be capturing
                     logger.error(f"Error in screen capture loop: {e}")
                     self.stats['capture_errors'] += 1
-                time.sleep(0.1)
+                time.sleep(0.05)  # Reduced error recovery time
         
         logger.info("Screen capture loop ended")
     

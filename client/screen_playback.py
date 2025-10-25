@@ -329,9 +329,16 @@ class ScreenPlayback:
                 self.last_frame = None
                 self.last_frame_time = None
                 
-                # Notify callback of presenter change
+                # Notify callback of presenter change with None to show black screen
                 if self.presenter_change_callback:
                     try:
                         self.presenter_change_callback(None)
                     except Exception as e:
                         logger.warning(f"Error in presenter change callback: {e}")
+                
+                # Also notify frame callback with None to clear display
+                if self.frame_callback:
+                    try:
+                        self.frame_callback(None, None)  # None frame and None presenter
+                    except Exception as e:
+                        logger.warning(f"Error in frame callback: {e}")
