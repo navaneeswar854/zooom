@@ -875,79 +875,227 @@ class ChatFrame(ModuleFrame):
     """Group chat module frame with chronological message ordering and history."""
     
     def __init__(self, parent):
-        super().__init__(parent, "Group Chat")
+        super().__init__(parent, "💬 Group Chat")
         self.set_enabled(True)  # Chat is always enabled
         
         # Chat history storage for session duration
         self.chat_history: List[Dict[str, Any]] = []
         self.max_history_size = 500  # Limit history to prevent memory issues
         
+        # Create modern input area FIRST (at bottom) to ensure visibility
+        self._create_modern_input_area()
+        
         # Chat display area with improved formatting
         self.chat_display = scrolledtext.ScrolledText(
             self, 
-            height=12, 
+            height=10, 
             state='disabled',
             wrap='word',
-            font=('Consolas', 9),
-            bg='#f8f9fa',
-            fg='#212529'
+            font=('Segoe UI', 10),
+            bg='#ffffff',
+            fg='#2c3e50',
+            relief='flat',
+            borderwidth=0,
+            highlightthickness=1,
+            highlightcolor='#3498db',
+            selectbackground='#e8f4fd'
         )
-        self.chat_display.pack(fill='both', expand=True, padx=5, pady=5)
+        self.chat_display.pack(fill='both', expand=True, padx=8, pady=(8, 0))
         
         # Configure text tags for different message types
         self._configure_message_tags()
         
-        # Message input area
-        self.input_frame = ttk.Frame(self)
-        self.input_frame.pack(fill='x', padx=5, pady=5)
-        
-        # Character counter
-        self.char_counter = ttk.Label(self.input_frame, text="0/1000", font=('Arial', 8))
-        self.char_counter.pack(side='right', padx=(5, 0))
-        
-        self.send_button = ttk.Button(
-            self.input_frame, 
-            text="Send", 
-            command=self._send_message
-        )
-        self.send_button.pack(side='right', padx=(5, 0))
-        
-        self.message_entry = ttk.Entry(self.input_frame)
-        self.message_entry.pack(side='left', fill='x', expand=True)
-        self.message_entry.bind('<Return>', self._send_message)
-        self.message_entry.bind('<KeyRelease>', self._update_char_counter)
-        
-        # Chat controls
-        self.controls_frame = ttk.Frame(self)
-        self.controls_frame.pack(fill='x', padx=5, pady=(0, 5))
-        
-        self.clear_button = ttk.Button(
-            self.controls_frame, 
-            text="Clear History", 
-            command=self._clear_chat_history
-        )
-        self.clear_button.pack(side='left')
-        
-        self.export_button = ttk.Button(
-            self.controls_frame, 
-            text="Export Chat", 
-            command=self._export_chat_history
-        )
-        self.export_button.pack(side='left', padx=(5, 0))
-        
-        # Status label
-        self.status_label = ttk.Label(self.controls_frame, text="Ready", font=('Arial', 8))
-        self.status_label.pack(side='right')
+
         
         # Callbacks
         self.message_callback: Optional[Callable[[str], None]] = None
+        
+        # Add welcome message
+        self.add_system_message("💬 Welcome! Start chatting with your team...")
+    
+    def _create_modern_input_area(self):
+        """Create a modern, beautiful input area for messages."""
+        # Main input container with modern styling
+        self.input_container = tk.Frame(self, bg='#f8f9fa', relief='solid', bd=1)
+        self.input_container.pack(side='bottom', fill='x', padx=8, pady=8)
+        
+        # Input header with label and status
+        self.input_header = tk.Frame(self.input_container, bg='#f8f9fa', height=25)
+        self.input_header.pack(fill='x', padx=10, pady=(8, 0))
+        self.input_header.pack_propagate(False)
+        
+        # Modern input label
+        self.input_label = tk.Label(
+            self.input_header,
+            text="💬 Type your message",
+            font=('Segoe UI', 10, 'bold'),
+            fg='#2c3e50',
+            bg='#f8f9fa'
+        )
+        self.input_label.pack(side='left', anchor='w')
+        
+        # Character counter (modern style)
+        self.char_counter = tk.Label(
+            self.input_header,
+            text="0/1000",
+            font=('Segoe UI', 8),
+            fg='#7f8c8d',
+            bg='#f8f9fa'
+        )
+        self.char_counter.pack(side='right', anchor='e')
+        
+        # Input field container
+        self.input_field_frame = tk.Frame(self.input_container, bg='#f8f9fa')
+        self.input_field_frame.pack(fill='x', padx=10, pady=(5, 8))
+        
+        # Modern text input with custom styling
+        self.message_entry = tk.Entry(
+            self.input_field_frame,
+            font=('Segoe UI', 11),
+            bg='#ffffff',
+            fg='#2c3e50',
+            relief='solid',
+            bd=1,
+            highlightthickness=2,
+            highlightcolor='#3498db',
+            highlightbackground='#bdc3c7',
+            insertbackground='#2c3e50'
+        )
+        self.message_entry.pack(side='left', fill='x', expand=True, ipady=8, padx=(0, 8))
+        
+        # Modern send button with gradient-like effect
+        self.send_button = tk.Button(
+            self.input_field_frame,
+            text="📤 Send",
+            font=('Segoe UI', 10, 'bold'),
+            bg='#3498db',
+            fg='white',
+            relief='flat',
+            bd=0,
+            padx=20,
+            pady=8,
+            cursor='hand2',
+            command=self._send_message
+        )
+        self.send_button.pack(side='right')
+        
+        # Add hover effects
+        self._setup_button_hover_effects()
+        
+        # Bind events
+        self.message_entry.bind('<Return>', self._send_message)
+        self.message_entry.bind('<KeyRelease>', self._update_char_counter)
+        self.message_entry.bind('<FocusIn>', self._on_entry_focus_in)
+        self.message_entry.bind('<FocusOut>', self._on_entry_focus_out)
+        
+        # Add placeholder functionality
+        self._setup_placeholder()
+        
+        # Chat controls (moved to separate area)
+        self._create_chat_controls()
+    
+    def _setup_button_hover_effects(self):
+        """Add modern hover effects to the send button."""
+        def on_enter(event):
+            self.send_button.config(bg='#2980b9')
+        
+        def on_leave(event):
+            self.send_button.config(bg='#3498db')
+        
+        self.send_button.bind('<Enter>', on_enter)
+        self.send_button.bind('<Leave>', on_leave)
+    
+    def _setup_placeholder(self):
+        """Setup placeholder text functionality."""
+        self.placeholder_text = "Type your message here..."
+        self.placeholder_active = True
+        
+        # Set initial placeholder
+        self.message_entry.insert(0, self.placeholder_text)
+        self.message_entry.config(fg='#95a5a6')
+    
+    def _on_entry_focus_in(self, event=None):
+        """Handle entry focus in - remove placeholder."""
+        if self.placeholder_active:
+            self.message_entry.delete(0, tk.END)
+            self.message_entry.config(fg='#2c3e50')
+            self.placeholder_active = False
+    
+    def _on_entry_focus_out(self, event=None):
+        """Handle entry focus out - add placeholder if empty."""
+        if not self.message_entry.get().strip():
+            self.message_entry.delete(0, tk.END)
+            self.message_entry.insert(0, self.placeholder_text)
+            self.message_entry.config(fg='#95a5a6')
+            self.placeholder_active = True
+    
+    def _create_chat_controls(self):
+        """Create modern chat control buttons."""
+        self.controls_frame = tk.Frame(self.input_container, bg='#f8f9fa')
+        self.controls_frame.pack(fill='x', padx=10, pady=(0, 8))
+        
+        # Modern control buttons
+        button_style = {
+            'font': ('Segoe UI', 9),
+            'bg': '#ecf0f1',
+            'fg': '#2c3e50',
+            'relief': 'flat',
+            'bd': 0,
+            'padx': 12,
+            'pady': 4,
+            'cursor': 'hand2'
+        }
+        
+        self.clear_button = tk.Button(
+            self.controls_frame,
+            text="🗑️ Clear",
+            command=self._clear_chat_history,
+            **button_style
+        )
+        self.clear_button.pack(side='left', padx=(0, 5))
+        
+        self.export_button = tk.Button(
+            self.controls_frame,
+            text="📄 Export",
+            command=self._export_chat_history,
+            **button_style
+        )
+        self.export_button.pack(side='left', padx=(0, 5))
+        
+        # Status indicator
+        self.status_label = tk.Label(
+            self.controls_frame,
+            text="Ready to chat",
+            font=('Segoe UI', 8),
+            fg='#27ae60',
+            bg='#f8f9fa'
+        )
+        self.status_label.pack(side='right')
+        
+        # Add hover effects to control buttons
+        self._setup_control_button_hover_effects()
+    
+    def _setup_control_button_hover_effects(self):
+        """Add hover effects to control buttons."""
+        def create_hover_effect(button, normal_color='#ecf0f1', hover_color='#d5dbdb'):
+            def on_enter(event):
+                button.config(bg=hover_color)
+            def on_leave(event):
+                button.config(bg=normal_color)
+            button.bind('<Enter>', on_enter)
+            button.bind('<Leave>', on_leave)
+        
+        create_hover_effect(self.clear_button)
+        create_hover_effect(self.export_button)
     
     def _configure_message_tags(self):
         """Configure text tags for different message types and formatting."""
-        self.chat_display.tag_configure('timestamp', foreground='#6c757d', font=('Consolas', 8))
-        self.chat_display.tag_configure('username', foreground='#0d6efd', font=('Consolas', 9, 'bold'))
-        self.chat_display.tag_configure('message', foreground='#212529', font=('Consolas', 9))
-        self.chat_display.tag_configure('system', foreground='#198754', font=('Consolas', 8, 'italic'))
+        self.chat_display.tag_configure('timestamp', foreground='#7f8c8d', font=('Segoe UI', 9))
+        self.chat_display.tag_configure('username', foreground='#3498db', font=('Segoe UI', 10, 'bold'))
+        self.chat_display.tag_configure('message', foreground='#2c3e50', font=('Segoe UI', 10))
+        self.chat_display.tag_configure('system', foreground='#27ae60', font=('Segoe UI', 9, 'italic'))
+        self.chat_display.tag_configure('error', foreground='#e74c3c', font=('Segoe UI', 9, 'italic'))
+        self.chat_display.tag_configure('own_message', foreground='#8e44ad', font=('Segoe UI', 10, 'bold'))
         self.chat_display.tag_configure('error', foreground='#dc3545', font=('Consolas', 8, 'italic'))
         self.chat_display.tag_configure('own_message', foreground='#6f42c1', font=('Consolas', 9))
     
@@ -957,6 +1105,11 @@ class ChatFrame(ModuleFrame):
     
     def _send_message(self, event=None):
         """Send a chat message with validation."""
+        # Don't send if placeholder is active
+        if self.placeholder_active:
+            self._show_status("Please enter a message", is_error=True)
+            return
+            
         message_text = self.message_entry.get().strip()
         
         if not message_text:
@@ -971,33 +1124,40 @@ class ChatFrame(ModuleFrame):
             try:
                 self.message_callback(message_text)
                 self.message_entry.delete(0, tk.END)
+                self._on_entry_focus_out()  # Reset placeholder
                 self._update_char_counter()
-                self._show_status("Message sent")
+                self._show_status("Message sent ✓", is_error=False)
             except Exception as e:
-                self._show_status(f"Failed to send message: {e}", is_error=True)
+                self._show_status(f"Failed to send: {e}", is_error=True)
         else:
-            self._show_status("Not connected", is_error=True)
+            self._show_status("Not connected - please connect first", is_error=True)
     
     def _update_char_counter(self, event=None):
         """Update character counter display."""
-        current_length = len(self.message_entry.get())
+        if self.placeholder_active:
+            current_length = 0
+        else:
+            current_length = len(self.message_entry.get())
+        
         self.char_counter.config(text=f"{current_length}/1000")
         
-        # Change color based on length
+        # Modern color scheme for character counter
         if current_length > 900:
-            self.char_counter.config(foreground='red')
+            self.char_counter.config(fg='#e74c3c')  # Red
         elif current_length > 800:
-            self.char_counter.config(foreground='orange')
+            self.char_counter.config(fg='#f39c12')  # Orange
+        elif current_length > 0:
+            self.char_counter.config(fg='#27ae60')  # Green
         else:
-            self.char_counter.config(foreground='black')
+            self.char_counter.config(fg='#7f8c8d')  # Gray
     
     def _show_status(self, message: str, is_error: bool = False):
-        """Show status message with auto-clear."""
-        color = 'red' if is_error else 'green'
+        """Show status message with auto-clear and modern styling."""
+        color = '#e74c3c' if is_error else '#27ae60'  # Modern red/green
         self.status_label.config(text=message, foreground=color)
         
-        # Clear status after 3 seconds
-        self.after(3000, lambda: self.status_label.config(text="Ready", foreground='black'))
+        # Clear status after 3 seconds with modern styling
+        self.after(3000, lambda: self.status_label.config(text="Ready to chat", fg='#27ae60'))
     
     def add_message(self, username: str, message: str, timestamp: Optional[datetime] = None, 
                    is_own_message: bool = False, message_type: str = 'chat'):
