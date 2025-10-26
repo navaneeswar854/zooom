@@ -1419,57 +1419,31 @@ class ScreenShareFrame(ModuleFrame):
         self.is_sharing = False
         self.current_presenter_name = None
         
-        # Enhanced screen share controls with presenter name display
+        # Simple presenter name display only
         self.controls_frame = ttk.Frame(self)
         self.controls_frame.pack(fill='x', padx=5, pady=5)
         
-        # Left side - Screen share button
-        self.button_frame = ttk.Frame(self.controls_frame)
-        self.button_frame.pack(side='left')
-        
-        self.share_button = ttk.Button(
-            self.button_frame, 
-            text="Start Screen Share", 
-            command=self._toggle_screen_share
-        )
-        self.share_button.pack(side='left', padx=2)
-        
-        # Right side - Presenter name display
-        self.presenter_frame = ttk.Frame(self.controls_frame)
-        self.presenter_frame.pack(side='right')
-        
+        # Presenter name display
         self.presenter_label = ttk.Label(
-            self.presenter_frame, 
-            text="No presenter", 
-            font=('Segoe UI', 10, 'italic'),
-            foreground='gray'
+            self.controls_frame, 
+            text="", 
+            font=('Segoe UI', 12, 'bold'),
+            foreground='blue'
         )
-        self.presenter_label.pack(side='right', padx=5)
+        self.presenter_label.pack(side='left', padx=10)
         
-        # Screen sharing status
-        self.status_frame = ttk.Frame(self)
-        self.status_frame.pack(fill='x', padx=5, pady=2)
-        
-        self.sharing_status = ttk.Label(self.status_frame, text="Ready to share")
-        self.sharing_status.pack(side='left')
-        
-        # Enhanced screen display area with better frame rate support
-        self.screen_display = tk.Frame(self, bg='black', height=300)  # Increased height
+        # Optimized screen display area for maximum smoothness
+        self.screen_display = tk.Frame(self, bg='black')
         self.screen_display.pack(fill='both', expand=True, padx=5, pady=5)
-        self.screen_display.pack_propagate(False)  # Maintain minimum height
         
         self.screen_label = ttk.Label(self.screen_display, text="No screen sharing active", 
                                     background='black', foreground='white')
         self.screen_label.pack(expand=True)
         
-        # Enhanced screen canvas with better performance
+        # High-performance screen canvas - no frame rate limiting
         self.screen_canvas = tk.Canvas(self.screen_display, bg='black', highlightthickness=0)
         self.screen_canvas.pack(fill='both', expand=True)
         self.screen_canvas.pack_forget()  # Initially hidden
-        
-        # Frame rate optimization
-        self.last_frame_update = 0
-        self.frame_rate_limit = 1.0 / 60  # 60 FPS for smooth display
         
         # Canvas state tracking for automatic rescaling
         self.last_canvas_size = (0, 0)
@@ -1514,119 +1488,57 @@ class ScreenShareFrame(ModuleFrame):
         self.screen_share_callback = callback
     
     def _toggle_screen_share(self):
-        """Toggle screen sharing on/off or request presenter role with loading states."""
+        """Toggle screen sharing - called from main GUI button."""
         try:
-            logger.info(f"Screen share button clicked. Current sharing: {self.is_sharing}")
+            logger.info(f"Screen share toggle called. Current sharing: {self.is_sharing}")
             
-            # Safely get button text with validation
-            try:
-                if not self.share_button.winfo_exists():
-                    logger.error("Share button no longer exists")
-                    return
-                button_text = self.share_button.cget('text')
-            except tk.TclError as e:
-                logger.error(f"Error getting button text: {e}")
-                return
-            
-            if button_text == "Request Presenter Role":
-                # Add loading states during presenter role requests
-                self._safe_button_update(self.share_button, state='disabled', text="Requesting...")
-                self._safe_label_update(self.sharing_status, text="Requesting presenter role...", foreground='orange')
-                
-                # Request presenter role
-                if self.screen_share_callback:
-                    logger.info("Requesting presenter role")
-                    self.screen_share_callback(True)  # This will trigger presenter role request
-                    
-                    # Set timeout to reset button if no response
-                    self.after(10000, self._reset_presenter_request_timeout)
-            elif button_text.startswith("Start"):
-                # Start screen sharing (already presenter)
-                self._safe_button_update(self.share_button, state='disabled', text="Starting...")
-                self._safe_label_update(self.sharing_status, text="Starting screen share...", foreground='orange')
-                
-                if self.screen_share_callback:
-                    logger.info("Starting screen sharing")
-                    self.screen_share_callback(True)
-            elif button_text.startswith("Stop"):
-                # Stop screen sharing
-                if self.screen_share_callback:
+            if self.screen_share_callback:
+                if self.is_sharing:
                     logger.info("Stopping screen sharing")
                     self.screen_share_callback(False)
-            else:
-                logger.warning(f"Unknown button state: {button_text}")
+                else:
+                    logger.info("Starting screen sharing")
+                    self.screen_share_callback(True)
         
         except Exception as e:
             logger.error(f"Error in screen share toggle: {e}")
-            # Reset button state on error
-            try:
-                self._safe_button_update(self.share_button, state='normal', text="Request Presenter Role")
-                self._safe_label_update(self.sharing_status, text="Error - try again", foreground='red')
-            except:
-                pass
     
-    def _reset_presenter_request_timeout(self):
-        """Reset presenter request button after timeout."""
-        if self.share_button.cget('text') == "Requesting...":
-            self._safe_button_update(self.share_button, state='normal', text="Request Presenter Role")
-            self._safe_label_update(self.sharing_status, text="Request timed out - try again", foreground='red')
-            # Reset to normal after delay
-            self.after(3000, lambda: self._safe_label_update(self.sharing_status, text="Ready to request presenter role", foreground='black'))
+
     
     def update_presenter(self, presenter_name: str = None):
-        """Update presenter display with enhanced name visibility."""
+        """Update presenter display - simple and clean."""
         self.current_presenter_name = presenter_name
         
-        # Update presenter name display prominently
+        # Simple presenter name display
         if presenter_name:
             if presenter_name == "You (Presenter)":
-                self._safe_label_update(self.presenter_label, text="🎯 You are presenting", foreground='green')
+                self._safe_label_update(self.presenter_label, text="You are presenting", foreground='green')
             else:
-                self._safe_label_update(self.presenter_label, text=f"🎯 {presenter_name} is presenting", foreground='blue')
-        else:
-            self._safe_label_update(self.presenter_label, text="No presenter", foreground='gray')
-        
-        # Update button state based on who is sharing
-        if presenter_name and not self.is_sharing:
-            # Someone else is sharing - disable our button
-            if presenter_name != "You (Presenter)":
-                self._safe_button_update(self.share_button, state='disabled', text=f"{presenter_name} is sharing")
-                self._safe_label_update(self.sharing_status, text=f"{presenter_name} is sharing", foreground='blue')
-            # Show their screen area
+                self._safe_label_update(self.presenter_label, text=f"{presenter_name} is presenting", foreground='blue')
+            
+            # Show screen area
             if not self.screen_canvas.winfo_viewable():
                 self.screen_label.pack_forget()
                 self.screen_canvas.pack(fill='both', expand=True)
-        elif not presenter_name and not self.is_sharing:
-            # No one is sharing - enable our button
-            self._safe_button_update(self.share_button, state='normal', text="Start Screen Share")
-            self._safe_label_update(self.sharing_status, text="Ready to share", foreground='black')
+        else:
+            self._safe_label_update(self.presenter_label, text="", foreground='gray')
+            
             # Hide screen area
             self.screen_canvas.pack_forget()
             self.screen_label.pack(expand=True)
-        
-        # Update display based on sharing status
-        if not self.is_sharing:
-            if presenter_name:
-                self._safe_label_update(self.screen_label, text=f"Waiting for {presenter_name} to share")
-            else:
-                self._safe_label_update(self.screen_label, text="No screen sharing active")
     
     def set_sharing_status(self, is_sharing: bool):
-        """Update screen sharing status with proper status messages."""
+        """Update screen sharing status."""
         self.is_sharing = is_sharing
         self.enabled = is_sharing
         self._update_status_indicator()
         
         if is_sharing:
-            self._safe_button_update(self.share_button, text="Stop Screen Share", state='normal')
-            # Show "You are sharing" when local screen sharing is active
-            self._safe_label_update(self.sharing_status, text="You are sharing", foreground='green')
+            # Show screen area when sharing
             self.screen_label.pack_forget()
             self.screen_canvas.pack(fill='both', expand=True)
         else:
-            self._safe_button_update(self.share_button, text="Start Screen Share", state='normal')
-            # Reset status to "Ready to share" when screen sharing stops
-            self._safe_label_update(self.sharing_status, text="Ready to share", foreground='black')
+            # Hide screen area when not sharing
             self.screen_canvas.pack_forget()
             self.screen_label.pack(expand=True)
             
@@ -1637,15 +1549,10 @@ class ScreenShareFrame(ModuleFrame):
 
     
     def display_screen_frame(self, frame_data, presenter_name: str):
-        """Display screen frame with enhanced frame rate and presenter name display."""
+        """Display screen frame with maximum smoothness - no frame rate limiting."""
         try:
-            import time
-            
-            # Frame rate limiting for smooth display
-            current_time = time.time()
-            if current_time - self.last_frame_update < self.frame_rate_limit:
-                return  # Skip frame to maintain smooth 60 FPS
-            self.last_frame_update = current_time
+            # No frame rate limiting for maximum smoothness
+            # Display every frame immediately
             
             # Handle None frame data (black screen when presenter stops)
             if frame_data is None:
@@ -2742,18 +2649,23 @@ class GUIManager:
         )
         self.screen_fullscreen_btn.pack(side='right')
         
-        # Quality indicator (left side)
-        quality_controls = tk.Frame(screen_controls, bg='#ecf0f1')
-        quality_controls.pack(side='left', pady=8)
+        # Share screen button (left side)
+        share_controls = tk.Frame(screen_controls, bg='#ecf0f1')
+        share_controls.pack(side='left', pady=8)
         
-        self.quality_label = tk.Label(
-            quality_controls,
-            text="📊 Enhanced Quality: 60 FPS",
-            font=('Segoe UI', 9),
-            bg='#ecf0f1',
-            fg='#27ae60'
+        self.screen_share_btn = tk.Button(
+            share_controls,
+            text="🖥️ Share Screen",
+            font=('Segoe UI', 10, 'bold'),
+            bg='#3498db',
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2',
+            command=self._toggle_screen_share
         )
-        self.quality_label.pack(side='left', padx=10)
+        self.screen_share_btn.pack(side='left', padx=10)
         
         # Create enhanced screen share frame (larger area for better video display)
         self.screen_share_frame = ScreenShareFrame(screen_frame)
