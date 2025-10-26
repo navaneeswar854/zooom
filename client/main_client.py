@@ -1026,6 +1026,18 @@ class CollaborationClient:
                 if client_id in participants:
                     participants[client_id]['video_enabled'] = active
                     
+                    # Handle video status change
+                    if hasattr(self.gui_manager, 'video_frame') and self.gui_manager.video_frame:
+                        username = participants[client_id].get('username', f'User {client_id[:8]}')
+                        if not active:
+                            # Video disabled - show blank screen for this client
+                            logger.info(f"Video disabled for {username} ({client_id}), showing blank screen")
+                            self.gui_manager.video_frame.show_blank_screen_for_client(client_id, username)
+                        else:
+                            # Video enabled - ready to receive video frames
+                            logger.info(f"Video enabled for {username} ({client_id}), ready for video frames")
+                            # The video frames will be handled by the normal video processing
+                    
                     # Update GUI participant list
                     current_client_id = self.connection_manager.get_client_id()
                     self.gui_manager.update_participants(participants, current_client_id)

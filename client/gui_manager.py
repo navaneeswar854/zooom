@@ -96,8 +96,91 @@ class VideoFrame(ModuleFrame):
         self.enabled = not self.enabled
         self._update_status_indicator()
         
+        # Handle local video display
+        if not self.enabled:
+            # Show blank screen when video is disabled
+            self._show_blank_screen_for_local()
+        
         if self.video_callback:
             self.video_callback(self.enabled)
+    
+    def _show_blank_screen_for_local(self):
+        """Show blank screen in local video slot when video is disabled."""
+        try:
+            if 0 in self.video_slots:
+                slot = self.video_slots[0]
+                
+                # Clear any existing video widgets
+                if self._widget_exists(slot['video_frame']):
+                    for child in slot['video_frame'].winfo_children():
+                        if hasattr(child, 'image'):  # This is a video widget
+                            try:
+                                child.destroy()
+                            except:
+                                pass
+                    
+                    # Create blank screen placeholder
+                    blank_label = tk.Label(
+                        slot['video_frame'], 
+                        text="Video Disabled", 
+                        fg='gray', 
+                        bg='black',
+                        font=('Segoe UI', 12),
+                        justify='center'
+                    )
+                    blank_label.pack(expand=True)
+                    
+                    logger.info("Local video disabled - showing blank screen")
+        except Exception as e:
+            logger.error(f"Error showing blank screen for local video: {e}")
+    
+    def show_blank_screen_for_client(self, client_id: str, username: str):
+        """Show blank screen for a remote client who disabled their video."""
+        try:
+            logger.info(f"Showing blank screen for {username} ({client_id})")
+            
+            # Find the video slot for this client
+            for slot_id, slot in self.video_slots.items():
+                if slot.get('participant_id') == client_id:
+                    logger.info(f"Found slot {slot_id} for {client_id}, showing blank screen")
+                    
+                    # Clear any existing video widgets
+                    if self._widget_exists(slot['video_frame']):
+                        for child in slot['video_frame'].winfo_children():
+                            if hasattr(child, 'image'):  # This is a video widget
+                                try:
+                                    child.destroy()
+                                except:
+                                    pass
+                        
+                        # Create blank screen with username
+                        blank_label = tk.Label(
+                            slot['video_frame'], 
+                            text=f"{username}\n(Video Disabled)", 
+                            fg='gray', 
+                            bg='black',
+                            font=('Segoe UI', 10),
+                            justify='center'
+                        )
+                        blank_label.pack(expand=True)
+                    
+                    # Update placeholder label
+                    if self._widget_exists(slot['placeholder_label']):
+                        slot['placeholder_label'].config(
+                            text=f"{username}\n(Video disabled)",
+                            fg='gray'
+                        )
+                    
+                    # Keep the slot assigned but mark as inactive
+                    slot['active'] = False
+                    
+                    logger.info(f"Successfully showed blank screen for {username}")
+                    break
+            else:
+                logger.warning(f"No video slot found for client {client_id}")
+                    
+        except Exception as e:
+            logger.error(f"Error showing blank screen for client {client_id}: {e}")
     
     def _create_video_slots(self):
         """Create video slots in a perfectly equal 2x2 grid with name labels."""
@@ -200,13 +283,21 @@ class VideoFrame(ModuleFrame):
     
     def update_video_feeds(self, participants: Dict[str, Any]):
         """Update video feed display with participant information and names."""
-        # Get participants with video enabled
-        active_participants = [(pid, p) for pid, p in participants.items() 
-                             if p.get('video_enabled', False)]
+        # Get ALL participants (both video enabled and disabled)
+        all_participants = list(participants.items())
         
         # Clear all remote slots first (keep slot 0 for local video)
         for slot_id, slot in self.video_slots.items():
             if slot_id > 0:  # Don't clear slot 0 (local video)
+                # Clear any existing video widgets to prevent frozen frames
+                if self._widget_exists(slot['video_frame']):
+                    for child in slot['video_frame'].winfo_children():
+                        if hasattr(child, 'image'):  # This is a video widget
+                            try:
+                                child.destroy()
+                            except:
+                                pass
+                
                 if self._widget_exists(slot['placeholder_label']):
                     slot['placeholder_label'].config(
                         text="Waiting for\nparticipant...",
@@ -218,28 +309,71 @@ class VideoFrame(ModuleFrame):
                 slot['participant_name'] = None
                 slot['active'] = False
         
-        # Assign participants to available slots (skip slot 0 for local video)
-        for i, (participant_id, participant) in enumerate(active_participants):
+        # Assign ALL participants to available slots (skip slot 0 for local video)
+        for i, (participant_id, participant) in enumerate(all_participants):
             slot_id = i + 1  # Start from slot 1 (slot 0 is local)
             if slot_id < len(self.video_slots):
                 slot = self.video_slots[slot_id]
                 username = participant.get('username', f'User {participant_id[:8]}')
+                video_enabled = participant.get('video_enabled', False)
                 
                 # Update slot information
                 slot['participant_id'] = participant_id
                 slot['participant_name'] = username
-                slot['active'] = True
+                slot['active'] = video_enabled
                 
                 # Update name label
                 if self._widget_exists(slot['name_label']):
                     slot['name_label'].config(text=username)
                 
-                # Update placeholder
+                # Handle video status - show appropriate display
+                if video_enabled:
+                    # Video enabled - show active status
+                    if self._widget_exists(slot['placeholder_label']):
+                        slot['placeholder_label'].config(
+                            text=f"{username}\n(Video active)",
+                            fg='lightgreen'
+                        )
+                else:
+                    # Video disabled - show blank screen immediately
+                    self._show_blank_screen_for_slot(slot_id, username)
+    
+    def _show_blank_screen_for_slot(self, slot_id: int, username: str):
+        """Show blank screen for a specific slot."""
+        try:
+            if slot_id in self.video_slots:
+                slot = self.video_slots[slot_id]
+                
+                # Clear any existing video widgets
+                if self._widget_exists(slot['video_frame']):
+                    for child in slot['video_frame'].winfo_children():
+                        if hasattr(child, 'image'):  # This is a video widget
+                            try:
+                                child.destroy()
+                            except:
+                                pass
+                    
+                    # Create blank screen with username
+                    blank_label = tk.Label(
+                        slot['video_frame'], 
+                        text=f"{username}\n(Video Disabled)", 
+                        fg='gray', 
+                        bg='black',
+                        font=('Segoe UI', 10),
+                        justify='center'
+                    )
+                    blank_label.pack(expand=True)
+                
+                # Update placeholder label
                 if self._widget_exists(slot['placeholder_label']):
                     slot['placeholder_label'].config(
-                        text=f"{username}\n(Video active)",
-                        fg='lightgreen'
+                        text=f"{username}\n(Video disabled)",
+                        fg='orange'
                     )
+                    
+                logger.info(f"Showing blank screen for {username} in slot {slot_id}")
+        except Exception as e:
+            logger.error(f"Error showing blank screen for slot {slot_id}: {e}")
     
     def update_participant_name(self, participant_id: str, username: str):
         """Update participant name on their video slot with enhanced display."""
