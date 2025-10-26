@@ -70,14 +70,9 @@ class VideoFrame(ModuleFrame):
         self.quality_label = ttk.Label(self.quality_frame, text="Quality: Auto", font=('Segoe UI', 9))
         self.quality_label.pack(side='right', padx=5)
         
-        # Large video display area with grid layout
+        # Large video display area with perfectly equal grid layout
         self.video_display = tk.Frame(self, bg='#2c2c2c')
-        self.video_display.pack(fill='both', expand=True, padx=5, pady=5)
-        
-        # Configure grid for responsive video layout
-        for i in range(2):  # 2x2 grid for up to 4 participants
-            self.video_display.rowconfigure(i, weight=1)
-            self.video_display.columnconfigure(i, weight=1)
+        self.video_display.pack(fill='both', expand=True, padx=0, pady=0)
         
         # Create video slots
         self.video_slots = {}
@@ -105,21 +100,31 @@ class VideoFrame(ModuleFrame):
             self.video_callback(self.enabled)
     
     def _create_video_slots(self):
-        """Create video slots in a 2x2 grid with name labels."""
+        """Create video slots in a perfectly equal 2x2 grid with name labels."""
         positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
         
+        # Configure grid for perfectly equal-sized quadrants with uniform sizing
+        self.video_display.grid_rowconfigure(0, weight=1, uniform="quadrant")
+        self.video_display.grid_rowconfigure(1, weight=1, uniform="quadrant")
+        self.video_display.grid_columnconfigure(0, weight=1, uniform="quadrant")
+        self.video_display.grid_columnconfigure(1, weight=1, uniform="quadrant")
+        
         for i, (row, col) in enumerate(positions):
-            # Main slot container
-            slot_container = tk.Frame(self.video_display, bg='black', relief='solid', borderwidth=1)
-            slot_container.grid(row=row, column=col, sticky='nsew', padx=2, pady=2)
+            # Main slot container with no padding to ensure equal sizes
+            slot_container = tk.Frame(self.video_display, bg='black', relief='solid', borderwidth=0)
+            slot_container.grid(row=row, column=col, sticky='nsew', padx=0, pady=0)
             
-            # Video area
-            video_frame = tk.Frame(slot_container, bg='black')
+            # Add internal border for visual separation
+            inner_frame = tk.Frame(slot_container, bg='black', relief='solid', borderwidth=1)
+            inner_frame.pack(fill='both', expand=True, padx=1, pady=1)
+            
+            # Video area that fills the inner frame
+            video_frame = tk.Frame(inner_frame, bg='black')
             video_frame.pack(fill='both', expand=True)
             
             # Name label overlay (positioned at bottom of video)
             name_label = tk.Label(
-                slot_container,
+                inner_frame,
                 text="You" if i == 0 else "Empty Slot",
                 fg='white',
                 bg='#2c3e50',  # Dark background
@@ -142,6 +147,7 @@ class VideoFrame(ModuleFrame):
             
             self.video_slots[i] = {
                 'container': slot_container,
+                'inner_frame': inner_frame,
                 'video_frame': video_frame,
                 'name_label': name_label,
                 'placeholder_label': placeholder_label,
@@ -149,6 +155,48 @@ class VideoFrame(ModuleFrame):
                 'participant_name': 'You' if i == 0 else None,
                 'active': False
             }
+    
+    def _get_optimal_video_size(self):
+        """Calculate optimal video size for equal-sized quadrants."""
+        try:
+            # Get the video display area dimensions
+            self.video_display.update_idletasks()  # Ensure geometry is updated
+            total_width = self.video_display.winfo_width()
+            total_height = self.video_display.winfo_height()
+            
+            # Calculate exact quadrant size (equal quadrants)
+            quadrant_width = (total_width - 8) // 2  # 4px total horizontal spacing
+            quadrant_height = (total_height - 8) // 2  # 4px total vertical spacing
+            
+            # Account for name label height (approximately 30px)
+            available_height = quadrant_height - 35
+            available_width = quadrant_width - 10  # Small margin for borders
+            
+            # Use 95% of available space for better fill
+            target_width = int(available_width * 0.95)
+            target_height = int(available_height * 0.95)
+            
+            # Maintain 4:3 aspect ratio but prioritize filling the quadrant
+            aspect_ratio = target_width / target_height if target_height > 0 else 4/3
+            
+            if aspect_ratio > 4/3:
+                # Width is too large, constrain by height
+                target_width = int(target_height * 4/3)
+            else:
+                # Height is too large, constrain by width  
+                target_height = int(target_width * 3/4)
+            
+            # Ensure reasonable minimum size
+            min_width, min_height = 120, 90
+            target_width = max(target_width, min_width)
+            target_height = max(target_height, min_height)
+            
+            return (target_width, target_height)
+            
+        except Exception as e:
+            logger.error(f"Error calculating optimal video size: {e}")
+            # Fallback to reasonable default size
+            return (240, 180)
     
     def update_video_feeds(self, participants: Dict[str, Any]):
         """Update video feed display with participant information and names."""
@@ -234,11 +282,9 @@ class VideoFrame(ModuleFrame):
                 logger.warning("Invalid frame data for local video")
                 return
             
-            # Convert and resize frame
+            # Convert frame to RGB and create PhotoImage without resizing
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             pil_image = Image.fromarray(rgb_frame)
-            display_size = (200, 150)
-            pil_image = pil_image.resize(display_size, Image.LANCZOS)
             photo = ImageTk.PhotoImage(pil_image)
             
             # Update slot 0 (local video) safely
@@ -280,15 +326,9 @@ class VideoFrame(ModuleFrame):
             
             # Ultra-fast frame processing
             if frame is not None and frame.size > 0:
-                # Direct RGB conversion without validation
+                # Direct RGB conversion and PhotoImage creation without resizing
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_image = Image.fromarray(rgb_frame)
-                
-                # Fast resize with nearest neighbor for speed
-                display_size = (200, 150)
-                pil_image = pil_image.resize(display_size, Image.NEAREST)
-                
-                # Immediate PhotoImage creation
                 photo = ImageTk.PhotoImage(pil_image)
                 
                 # Ultra-fast slot update
@@ -326,15 +366,9 @@ class VideoFrame(ModuleFrame):
             
             # Ultra-fast frame processing
             if frame is not None and frame.size > 0:
-                # Direct RGB conversion without validation
+                # Direct RGB conversion and PhotoImage creation without resizing
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_image = Image.fromarray(rgb_frame)
-                
-                # Fast resize with nearest neighbor for speed
-                display_size = (200, 150)
-                pil_image = pil_image.resize(display_size, Image.NEAREST)
-                
-                # Immediate PhotoImage creation
                 photo = ImageTk.PhotoImage(pil_image)
                 
                 # Get or assign slot with extreme speed
@@ -403,14 +437,8 @@ class VideoFrame(ModuleFrame):
             if frame is not None and frame.size > 0:
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 
-                # Convert to PIL Image
+                # Convert to PIL Image and create PhotoImage without resizing
                 pil_image = Image.fromarray(rgb_frame)
-                
-                # Resize to fit in video slot (maintain aspect ratio)
-                display_size = (200, 150)  # Larger size for better visibility
-                pil_image = pil_image.resize(display_size, Image.LANCZOS)
-                
-                # Convert to PhotoImage for tkinter
                 photo = ImageTk.PhotoImage(pil_image)
                 
                 # Update the first video slot with local video
@@ -498,11 +526,9 @@ class VideoFrame(ModuleFrame):
                     logger.warning(f"Remote video frame widget for {client_id} no longer exists")
                     return
                 
-                # Convert and resize frame
+                # Convert frame to RGB and create PhotoImage without resizing
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_image = Image.fromarray(rgb_frame)
-                display_size = (200, 150)
-                pil_image = pil_image.resize(display_size, Image.LANCZOS)
                 photo = ImageTk.PhotoImage(pil_image)
                 
                 # Clear and update frame
@@ -551,14 +577,8 @@ class VideoFrame(ModuleFrame):
             if frame is not None and frame.size > 0:
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 
-                # Convert to PIL Image
+                # Convert to PIL Image and create PhotoImage without resizing
                 pil_image = Image.fromarray(rgb_frame)
-                
-                # Resize to fit in video slot (maintain aspect ratio)
-                display_size = (200, 150)  # Larger size for better visibility
-                pil_image = pil_image.resize(display_size, Image.LANCZOS)
-                
-                # Convert to PhotoImage for tkinter
                 photo = ImageTk.PhotoImage(pil_image)
                 
                 # Find or get assigned slot for this client (skip slot 0 which is for local video)
@@ -697,8 +717,9 @@ class VideoFrame(ModuleFrame):
             if frame is not None and frame.size > 0:
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_image = Image.fromarray(rgb_frame)
-                display_size = (200, 150)
-                pil_image = pil_image.resize(display_size, Image.LANCZOS)
+                display_size = self._get_optimal_video_size()
+                # Don't resize - let tkinter handle the sizing to fill the entire slot
+                # pil_image = pil_image.resize(display_size, Image.LANCZOS)
                 photo = ImageTk.PhotoImage(pil_image)
                 
                 # Find existing video widget or create new one
