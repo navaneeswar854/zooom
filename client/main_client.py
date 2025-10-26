@@ -988,7 +988,7 @@ class CollaborationClient:
             logger.error(f"Error handling local video frame: {e}")
     
     def _on_incoming_video_frame(self, client_id: str, frame):
-        """Handle incoming video frame from other participants."""
+        """Handle incoming video frame from other participants with username display."""
         try:
             # Validate frame and client_id
             if not client_id:
@@ -1002,6 +1002,14 @@ class CollaborationClient:
             # Update GUI with incoming video frame
             if hasattr(self.gui_manager, 'video_frame') and self.gui_manager.video_frame:
                 self.gui_manager.video_frame.update_remote_video(client_id, frame)
+                
+                # Update participant name if we have connection manager
+                if self.connection_manager:
+                    participants = self.connection_manager.get_participants()
+                    participant = participants.get(client_id, {})
+                    username = participant.get('username', f'Client {client_id[:8]}')
+                    self.gui_manager.video_frame.update_participant_name(client_id, username)
+                
                 logger.debug(f"Remote video frame from {client_id} sent to GUI")
             else:
                 logger.warning("GUI video frame not available for remote video display")

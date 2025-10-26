@@ -194,56 +194,83 @@ class VideoFrame(ModuleFrame):
                     )
     
     def update_participant_name(self, participant_id: str, username: str):
-        """Update participant name on their video slot."""
-        for slot in self.video_slots.values():
+        """Update participant name on their video slot with enhanced display."""
+        for slot_id, slot in self.video_slots.items():
             if slot['participant_id'] == participant_id:
                 slot['participant_name'] = username
                 if self._widget_exists(slot['name_label']):
-                    slot['name_label'].config(text=username)
+                    # Show username with video status indicator
+                    display_name = username
+                    if slot.get('active', False):
+                        display_name += " 📹"
+                    slot['name_label'].config(text=display_name, fg='lightblue')
+                logger.debug(f"Updated participant name for slot {slot_id}: {username}")
                 break
-        assigned_participants = set()  # Track assigned participants to prevent duplicates
-        slot_index = 1  # Start from slot 1 (slot 0 is for local video)
-        
-        for participant in active_participants:
-            participant_id = participant.get('client_id')
-            participant_name = participant.get('username', 'Unknown')
-            
-            # Skip if already assigned or if no more slots available
-            if participant_id in assigned_participants or slot_index >= len(self.video_slots):
-                continue
-            
-            # Assign to next available slot
-            if slot_index in self.video_slots:
-                slot = self.video_slots[slot_index]
-                
-                # Update slot with participant info
-                if self._widget_exists(slot['label']):
-                    slot['label'].config(
-                        text=f"{participant_name}\n{'🎥 Video Active' if participant.get('video_enabled') else '📷 Video Off'}",
-                        fg='lightgreen' if participant.get('video_enabled') else 'lightgray'
-                    )
-                slot['participant_id'] = participant_id
-                slot['active'] = True
-                
-                assigned_participants.add(participant_id)
-                slot_index += 1
+        # This code block is no longer needed as it's handled by update_video_feeds method above
     
     def update_local_video(self, frame):
-        """Update local video display with proper frame sequencing."""
+        """Update local video display with enhanced stability and proper threading."""
         try:
-            # Use direct stable video display for proper frame sequencing
-            self._update_local_video_safe_stable(frame)
+            # Ensure we're on the main thread for GUI updates
+            if threading.current_thread() != threading.main_thread():
+                # Schedule update on main thread
+                self.video_display.after_idle(self._update_local_video_main_thread, frame)
+                return
+            
+            # Direct main thread update
+            self._update_local_video_main_thread(frame)
             
         except Exception as e:
             logger.error(f"Local video display error: {e}")
-            # Fallback to ultra-stable system if needed
-            try:
-                client_id = 'local'
-                if 0 in self.video_slots:
-                    ultra_stable_manager.register_video_slot(client_id, self.video_slots[0])
-                    ultra_stable_manager.update_video_frame(client_id, frame)
-            except Exception as fallback_error:
-                logger.error(f"Fallback local video error: {fallback_error}")
+    
+    def _update_local_video_main_thread(self, frame):
+        """Update local video on main thread with enhanced error handling."""
+        try:
+            import cv2
+            from PIL import Image, ImageTk
+            
+            # Validate frame
+            if frame is None or frame.size == 0:
+                logger.warning("Invalid frame data for local video")
+                return
+            
+            # Convert and resize frame
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(rgb_frame)
+            display_size = (200, 150)
+            pil_image = pil_image.resize(display_size, Image.LANCZOS)
+            photo = ImageTk.PhotoImage(pil_image)
+            
+            # Update slot 0 (local video) safely
+            if 0 in self.video_slots:
+                slot = self.video_slots[0]
+                
+                # Check if widgets exist
+                if not self._widget_exists(slot['video_frame']):
+                    logger.warning("Local video frame widget no longer exists")
+                    return
+                
+                # Clear and update frame
+                for child in slot['video_frame'].winfo_children():
+                    child.destroy()
+                
+                # Create video widget
+                video_widget = tk.Label(slot['video_frame'], image=photo, bg='black')
+                video_widget.pack(fill='both', expand=True)
+                video_widget.image = photo  # Keep reference
+                
+                # Update name label
+                if self._widget_exists(slot['name_label']):
+                    slot['name_label'].config(text="You (Local)", fg='lightgreen')
+                
+                # Update slot info
+                slot['participant_id'] = 'local'
+                slot['active'] = True
+                
+                logger.debug("Local video updated successfully")
+            
+        except Exception as e:
+            logger.error(f"Error in main thread local video update: {e}")
     
     def _update_local_video_extreme(self, frame):
         """Extreme optimization local video update - zero flickering."""
@@ -435,29 +462,73 @@ class VideoFrame(ModuleFrame):
             except:
                 pass  # Ignore errors when showing error message
     def update_remote_video(self, client_id: str, frame):
-        """Update remote video display with enhanced error handling."""
+        """Update remote video display with enhanced threading and error handling."""
         try:
-            logger.debug(f"Updating remote video for client {client_id}")
+            # Ensure we're on the main thread for GUI updates
+            if threading.current_thread() != threading.main_thread():
+                # Schedule update on main thread
+                self.video_display.after_idle(self._update_remote_video_main_thread, client_id, frame)
+                return
+            
+            # Direct main thread update
+            self._update_remote_video_main_thread(client_id, frame)
+            
+        except Exception as e:
+            logger.error(f"Error updating remote video for {client_id}: {e}")
+    
+    def _update_remote_video_main_thread(self, client_id: str, frame):
+        """Update remote video on main thread with enhanced error handling."""
+        try:
+            import cv2
+            from PIL import Image, ImageTk
+            
+            # Validate inputs
+            if not client_id or frame is None or frame.size == 0:
+                logger.warning(f"Invalid remote video data for client {client_id}")
+                return
             
             # Get or assign video slot
             slot_id = self._get_video_slot_stable(client_id)
             
             if slot_id is not None and slot_id in self.video_slots:
-                # Assign slot to this client
-                self.video_slots[slot_id]['participant_id'] = client_id
-                self.video_slots[slot_id]['active'] = True
+                slot = self.video_slots[slot_id]
                 
-                # Create video display
-                self._create_stable_video_display(
-                    self.video_slots[slot_id]['frame'], frame, client_id
-                )
+                # Check if widgets exist
+                if not self._widget_exists(slot['video_frame']):
+                    logger.warning(f"Remote video frame widget for {client_id} no longer exists")
+                    return
+                
+                # Convert and resize frame
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_image = Image.fromarray(rgb_frame)
+                display_size = (200, 150)
+                pil_image = pil_image.resize(display_size, Image.LANCZOS)
+                photo = ImageTk.PhotoImage(pil_image)
+                
+                # Clear and update frame
+                for child in slot['video_frame'].winfo_children():
+                    child.destroy()
+                
+                # Create video widget
+                video_widget = tk.Label(slot['video_frame'], image=photo, bg='black')
+                video_widget.pack(fill='both', expand=True)
+                video_widget.image = photo  # Keep reference
+                
+                # Update name label with participant name
+                participant_name = f"Client {client_id[:8]}"
+                if self._widget_exists(slot['name_label']):
+                    slot['name_label'].config(text=participant_name, fg='lightblue')
+                
+                # Update slot info
+                slot['participant_id'] = client_id
+                slot['active'] = True
                 
                 logger.debug(f"Remote video updated for {client_id} in slot {slot_id}")
             else:
                 logger.warning(f"No available video slot for remote client {client_id}")
                 
         except Exception as e:
-            logger.error(f"Error updating remote video for {client_id}: {e}")
+            logger.error(f"Error in main thread remote video update for {client_id}: {e}")
     def _update_remote_video_safe(self, client_id: str, frame):
         """Thread-safe implementation of remote video update."""
         try:
@@ -1348,17 +1419,32 @@ class ScreenShareFrame(ModuleFrame):
         self.is_sharing = False
         self.current_presenter_name = None
         
-        # Screen share controls
+        # Enhanced screen share controls with presenter name display
         self.controls_frame = ttk.Frame(self)
         self.controls_frame.pack(fill='x', padx=5, pady=5)
         
-        # Direct screen share button
+        # Left side - Screen share button
+        self.button_frame = ttk.Frame(self.controls_frame)
+        self.button_frame.pack(side='left')
+        
         self.share_button = ttk.Button(
-            self.controls_frame, 
+            self.button_frame, 
             text="Start Screen Share", 
             command=self._toggle_screen_share
         )
         self.share_button.pack(side='left', padx=2)
+        
+        # Right side - Presenter name display
+        self.presenter_frame = ttk.Frame(self.controls_frame)
+        self.presenter_frame.pack(side='right')
+        
+        self.presenter_label = ttk.Label(
+            self.presenter_frame, 
+            text="No presenter", 
+            font=('Segoe UI', 10, 'italic'),
+            foreground='gray'
+        )
+        self.presenter_label.pack(side='right', padx=5)
         
         # Screen sharing status
         self.status_frame = ttk.Frame(self)
@@ -1367,8 +1453,8 @@ class ScreenShareFrame(ModuleFrame):
         self.sharing_status = ttk.Label(self.status_frame, text="Ready to share")
         self.sharing_status.pack(side='left')
         
-        # Screen display area (larger for better visibility)
-        self.screen_display = tk.Frame(self, bg='black', height=200)
+        # Enhanced screen display area with better frame rate support
+        self.screen_display = tk.Frame(self, bg='black', height=300)  # Increased height
         self.screen_display.pack(fill='both', expand=True, padx=5, pady=5)
         self.screen_display.pack_propagate(False)  # Maintain minimum height
         
@@ -1376,10 +1462,14 @@ class ScreenShareFrame(ModuleFrame):
                                     background='black', foreground='white')
         self.screen_label.pack(expand=True)
         
-        # Screen frame display (for actual screen content) with improved initialization
+        # Enhanced screen canvas with better performance
         self.screen_canvas = tk.Canvas(self.screen_display, bg='black', highlightthickness=0)
         self.screen_canvas.pack(fill='both', expand=True)
         self.screen_canvas.pack_forget()  # Initially hidden
+        
+        # Frame rate optimization
+        self.last_frame_update = 0
+        self.frame_rate_limit = 1.0 / 60  # 60 FPS for smooth display
         
         # Canvas state tracking for automatic rescaling
         self.last_canvas_size = (0, 0)
@@ -1484,15 +1574,24 @@ class ScreenShareFrame(ModuleFrame):
             self.after(3000, lambda: self._safe_label_update(self.sharing_status, text="Ready to request presenter role", foreground='black'))
     
     def update_presenter(self, presenter_name: str = None):
-        """Update presenter display (for showing who is currently presenting)."""
+        """Update presenter display with enhanced name visibility."""
         self.current_presenter_name = presenter_name
+        
+        # Update presenter name display prominently
+        if presenter_name:
+            if presenter_name == "You (Presenter)":
+                self._safe_label_update(self.presenter_label, text="🎯 You are presenting", foreground='green')
+            else:
+                self._safe_label_update(self.presenter_label, text=f"🎯 {presenter_name} is presenting", foreground='blue')
+        else:
+            self._safe_label_update(self.presenter_label, text="No presenter", foreground='gray')
         
         # Update button state based on who is sharing
         if presenter_name and not self.is_sharing:
             # Someone else is sharing - disable our button
-            self._safe_button_update(self.share_button, state='disabled', text=f"{presenter_name} is sharing")
-            # Display "[Username] is sharing" when receiving remote screen
-            self._safe_label_update(self.sharing_status, text=f"{presenter_name} is sharing", foreground='blue')
+            if presenter_name != "You (Presenter)":
+                self._safe_button_update(self.share_button, state='disabled', text=f"{presenter_name} is sharing")
+                self._safe_label_update(self.sharing_status, text=f"{presenter_name} is sharing", foreground='blue')
             # Show their screen area
             if not self.screen_canvas.winfo_viewable():
                 self.screen_label.pack_forget()
@@ -1500,7 +1599,6 @@ class ScreenShareFrame(ModuleFrame):
         elif not presenter_name and not self.is_sharing:
             # No one is sharing - enable our button
             self._safe_button_update(self.share_button, state='normal', text="Start Screen Share")
-            # Reset status to "Ready to share" when screen sharing stops
             self._safe_label_update(self.sharing_status, text="Ready to share", foreground='black')
             # Hide screen area
             self.screen_canvas.pack_forget()
@@ -1539,8 +1637,16 @@ class ScreenShareFrame(ModuleFrame):
 
     
     def display_screen_frame(self, frame_data, presenter_name: str):
-        """Display a screen frame from the presenter with improved scaling and centering."""
+        """Display screen frame with enhanced frame rate and presenter name display."""
         try:
+            import time
+            
+            # Frame rate limiting for smooth display
+            current_time = time.time()
+            if current_time - self.last_frame_update < self.frame_rate_limit:
+                return  # Skip frame to maintain smooth 60 FPS
+            self.last_frame_update = current_time
+            
             # Handle None frame data (black screen when presenter stops)
             if frame_data is None:
                 self._show_black_screen()
@@ -1552,17 +1658,11 @@ class ScreenShareFrame(ModuleFrame):
             # Store current frame data for rescaling when canvas size changes
             self._store_current_frame(frame_data, presenter_name)
             
-            # Update presenter info with special handling for self-view
+            # Update presenter info with enhanced name display
             if self.current_presenter_name != presenter_name:
                 self.update_presenter(presenter_name)
                 if presenter_name == "You (Presenter)":
                     logger.info("Displaying your own screen share (presenter view)")
-                    # Update status to show this is self-view
-                    if hasattr(self, 'sharing_status'):
-                        self.sharing_status.config(
-                            text="Sharing your screen (you can see your own share)", 
-                            foreground='green'
-                        )
                 else:
                     logger.info(f"Now receiving screen from {presenter_name}")
             
@@ -1583,11 +1683,9 @@ class ScreenShareFrame(ModuleFrame):
             
             # Use fallback dimensions if canvas is not properly initialized
             if canvas_width <= 10 or canvas_height <= 10:
-                canvas_width = max(canvas_width, 400)  # Fallback minimum width
-                canvas_height = max(canvas_height, 300)  # Fallback minimum height
+                canvas_width = max(canvas_width, 600)  # Larger fallback for better display
+                canvas_height = max(canvas_height, 400)
                 logger.info(f"Using fallback canvas dimensions: {canvas_width}x{canvas_height}")
-            
-            logger.info(f"Canvas size: {canvas_width}x{canvas_height}, Image size: {image.size}")
             
             # Calculate proper aspect ratio scaling to prevent distortion
             img_width, img_height = image.size
@@ -1602,20 +1700,18 @@ class ScreenShareFrame(ModuleFrame):
             # Use the smaller scale to fit within canvas while maintaining aspect ratio
             scale = min(scale_w, scale_h)
             
-            # Apply minimum scale factor to prevent tiny images (at least 20% of original)
-            scale = max(scale, 0.2)
+            # Apply minimum scale factor to prevent tiny images
+            scale = max(scale, 0.3)
             
             # Calculate new dimensions
             new_width = int(img_width * scale)
             new_height = int(img_height * scale)
             
             # Ensure minimum visible size
-            new_width = max(new_width, 100)
-            new_height = max(new_height, 75)
+            new_width = max(new_width, 200)
+            new_height = max(new_height, 150)
             
-            logger.info(f"Scaling image from {img_width}x{img_height} to {new_width}x{new_height} (scale: {scale:.2f})")
-            
-            # Resize image with high quality resampling
+            # Resize image with high quality resampling for better clarity
             image = image.resize((new_width, new_height), Image.LANCZOS)
             
             # Convert to PhotoImage for tkinter
@@ -1624,7 +1720,7 @@ class ScreenShareFrame(ModuleFrame):
             # Clear canvas completely
             self.screen_canvas.delete("all")
             
-            # Center the image in the canvas to remove black space
+            # Center the image in the canvas
             x = (canvas_width - new_width) // 2
             y = (canvas_height - new_height) // 2
             
@@ -1635,10 +1731,35 @@ class ScreenShareFrame(ModuleFrame):
             # Create image on canvas at centered position
             self.screen_canvas.create_image(x, y, anchor='nw', image=photo)
             
+            # Add presenter name overlay on the screen
+            if presenter_name and presenter_name != "You (Presenter)":
+                self.screen_canvas.create_text(
+                    10, 10,
+                    text=f"📺 {presenter_name}",
+                    fill="white",
+                    font=("Segoe UI", 12, "bold"),
+                    anchor="nw"
+                )
+                # Add background rectangle for better visibility
+                self.screen_canvas.create_rectangle(
+                    5, 5, 150, 30,
+                    fill="black",
+                    stipple="gray50",
+                    outline=""
+                )
+                # Recreate text on top
+                self.screen_canvas.create_text(
+                    10, 10,
+                    text=f"📺 {presenter_name}",
+                    fill="white",
+                    font=("Segoe UI", 12, "bold"),
+                    anchor="nw"
+                )
+            
             # Keep a reference to prevent garbage collection
             self.screen_canvas.image = photo
             
-            logger.info(f"Image displayed at centered position ({x}, {y})")
+            logger.debug(f"Screen frame displayed: {new_width}x{new_height} at ({x}, {y})")
             
         except Exception as e:
             logger.error(f"Error displaying screen frame: {e}")
@@ -2594,36 +2715,18 @@ class GUIManager:
         self.root.unbind('<Escape>')
     
     def _create_screen_content(self):
-        """Create the screen sharing content with full screen option."""
+        """Create enhanced screen sharing content with better layout."""
         screen_frame = tk.Frame(self.content_area, bg='#ffffff')
         self.tab_frames['screen'] = screen_frame
         
-        # Screen share controls at top
-        screen_controls = tk.Frame(screen_frame, bg='#ecf0f1', height=60)
+        # Simplified controls - only full screen button (screen share button is in the frame itself)
+        screen_controls = tk.Frame(screen_frame, bg='#ecf0f1', height=50)
         screen_controls.pack(fill='x', padx=10, pady=10)
         screen_controls.pack_propagate(False)
         
-        # Left side - Screen share button
-        share_controls = tk.Frame(screen_controls, bg='#ecf0f1')
-        share_controls.pack(side='left', pady=10)
-        
-        self.screen_share_btn = tk.Button(
-            share_controls,
-            text="🖥️ Start Screen Share",
-            font=('Segoe UI', 10, 'bold'),
-            bg='#e74c3c',
-            fg='white',
-            relief='flat',
-            padx=15,
-            pady=8,
-            cursor='hand2',
-            command=self._toggle_screen_share
-        )
-        self.screen_share_btn.pack(side='left')
-        
-        # Right side - Full screen button
+        # Full screen button (right side only)
         screen_fullscreen_controls = tk.Frame(screen_controls, bg='#ecf0f1')
-        screen_fullscreen_controls.pack(side='right', pady=10)
+        screen_fullscreen_controls.pack(side='right', pady=8)
         
         self.screen_fullscreen_btn = tk.Button(
             screen_fullscreen_controls,
@@ -2639,9 +2742,22 @@ class GUIManager:
         )
         self.screen_fullscreen_btn.pack(side='right')
         
-        # Create screen share frame (larger area)
+        # Quality indicator (left side)
+        quality_controls = tk.Frame(screen_controls, bg='#ecf0f1')
+        quality_controls.pack(side='left', pady=8)
+        
+        self.quality_label = tk.Label(
+            quality_controls,
+            text="📊 Enhanced Quality: 60 FPS",
+            font=('Segoe UI', 9),
+            bg='#ecf0f1',
+            fg='#27ae60'
+        )
+        self.quality_label.pack(side='left', padx=10)
+        
+        # Create enhanced screen share frame (larger area for better video display)
         self.screen_share_frame = ScreenShareFrame(screen_frame)
-        self.screen_share_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        self.screen_share_frame.pack(fill='both', expand=True, padx=10, pady=(0, 10))
     
     def _create_files_content(self):
         """Create the file sharing content."""
