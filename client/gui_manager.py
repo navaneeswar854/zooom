@@ -2832,6 +2832,16 @@ class GUIManager:
         """Set screen sharing active status."""
         if self.screen_share_frame:
             self.screen_share_frame.set_sharing_status(is_sharing)
+        
+        # Update main GUI screen share button state
+        if hasattr(self, 'screen_share_btn'):
+            try:
+                if is_sharing:
+                    self.screen_share_btn.config(text="🛑 Stop Sharing", bg='#e74c3c')
+                else:
+                    self.screen_share_btn.config(text="🖥️ Share Screen", bg='#3498db')
+            except Exception as e:
+                logger.error(f"Error updating screen share button state: {e}")
     
     def display_screen_frame(self, frame_data, presenter_name: str):
         """Display screen frame from presenter."""

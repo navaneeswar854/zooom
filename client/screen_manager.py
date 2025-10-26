@@ -500,13 +500,16 @@ class ScreenManager:
                         
                         if success:
                             jpeg_bytes = encoded_frame.tobytes()
-                            self.gui_manager.display_screen_frame(jpeg_bytes, presenter_id)
+                            # Get presenter name instead of ID
+                            presenter_name = self._get_presenter_name(presenter_id)
+                            self.gui_manager.display_screen_frame(jpeg_bytes, presenter_name)
                         else:
                             logger.error("Failed to encode numpy array to JPEG for display")
                             self.gui_manager.show_error("Display Error", "Failed to encode screen frame for display")
                     else:
                         # Assume it's already bytes (fallback)
-                        self.gui_manager.display_screen_frame(frame_data, presenter_id)
+                        presenter_name = self._get_presenter_name(presenter_id)
+                        self.gui_manager.display_screen_frame(frame_data, presenter_name)
                         
                 except Exception as gui_error:
                     logger.error(f"Error updating GUI with screen frame: {gui_error}")
@@ -518,6 +521,31 @@ class ScreenManager:
         except Exception as e:
             error_msg = f"Unexpected error handling received screen frame: {e}"
             logger.error(error_msg)
+    
+    def _get_presenter_name(self, presenter_id: str) -> str:
+        """Get presenter name from presenter ID."""
+        try:
+            if not presenter_id:
+                return "Unknown Presenter"
+            
+            # Check if it's the local client
+            if self.connection_manager and presenter_id == self.connection_manager.get_client_id():
+                return "You (Presenter)"
+            
+            # Get name from participants list
+            if self.connection_manager:
+                participants = self.connection_manager.get_participants()
+                participant = participants.get(presenter_id, {})
+                username = participant.get('username')
+                if username:
+                    return username
+            
+            # Fallback to shortened ID
+            return f"User {presenter_id[:8]}"
+            
+        except Exception as e:
+            logger.error(f"Error getting presenter name for {presenter_id}: {e}")
+            return f"User {presenter_id[:8] if presenter_id else 'Unknown'}"
     
     def _handle_local_screen_frame(self, frame):
         """
