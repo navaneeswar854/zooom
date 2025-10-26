@@ -2581,17 +2581,21 @@ class GUIManager:
     
     def show_status_message(self, message: str, duration: int = 3000, is_error: bool = False):
         """Show temporary status message in the status bar."""
-        original_text = self.status_label.cget("text")
-        color = "red" if is_error else "green"
-        
-        # Update status with temporary message
-        self.status_label.config(text=f"Status: {message}", foreground=color)
-        
-        # Restore original status after duration
-        def restore_status():
-            self.status_label.config(text=original_text, foreground="black")
-        
-        self.root.after(duration, restore_status)
+        if hasattr(self, 'status_text'):
+            original_text = self.status_text.cget("text")
+            color = "#e74c3c" if is_error else "#27ae60"  # Modern colors
+            
+            # Update status with temporary message
+            self.status_text.config(text=message, fg=color)
+            
+            # Restore original status after duration
+            def restore_status():
+                self.status_text.config(text=original_text, fg="#2c3e50")
+            
+            self.root.after(duration, restore_status)
+        else:
+            # Fallback for compatibility
+            print(f"Status: {message}")
     
     def update_real_time_status(self):
         """Update real-time status indicators across all modules."""
@@ -2693,8 +2697,9 @@ class GUIManager:
     
     def setup_enhanced_callbacks(self):
         """Setup enhanced callback handling with error management."""
-        # Replace the basic connect callback with enhanced version
-        self.connect_button.config(command=self.enhanced_connect_clicked)
+        # Use basic connect callback for now to avoid status_label issues
+        # self.connect_button.config(command=self.enhanced_connect_clicked)
+        pass
     
     def run(self):
         """Start the GUI main loop."""
