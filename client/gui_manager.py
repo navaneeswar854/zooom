@@ -875,64 +875,51 @@ class ChatFrame(ModuleFrame):
     """Group chat module frame with chronological message ordering and history."""
     
     def __init__(self, parent):
-        super().__init__(parent, "💬 Group Chat")
+        super().__init__(parent, "Group Chat")
         self.set_enabled(True)  # Chat is always enabled
         
         # Chat history storage for session duration
         self.chat_history: List[Dict[str, Any]] = []
         self.max_history_size = 500  # Limit history to prevent memory issues
         
-        # Message input area - PACK FIRST to ensure it's always visible
-        self.input_frame = ttk.Frame(self, relief='raised', borderwidth=2, style='InputFrame.TFrame')
-        self.input_frame.pack(side='bottom', fill='x', padx=5, pady=10)
-        
-        # Add input label to make it obvious
-        self.input_label = ttk.Label(self.input_frame, text="💬 Type Message:", font=('Arial', 11, 'bold'), foreground='blue')
-        self.input_label.pack(side='left', padx=(10, 5))
-        
-        # Chat controls - pack before input
-        self.controls_frame = ttk.Frame(self)
-        self.controls_frame.pack(side='bottom', fill='x', padx=5, pady=(0, 5))
-        
-        # Chat display area - pack last so it takes remaining space
+        # Chat display area with improved formatting
         self.chat_display = scrolledtext.ScrolledText(
             self, 
             height=12, 
             state='disabled',
             wrap='word',
-            font=('Consolas', 10),
-            bg='#ffffff',
-            fg='#212529',
-            relief='sunken',
-            borderwidth=2
+            font=('Consolas', 9),
+            bg='#f8f9fa',
+            fg='#212529'
         )
         self.chat_display.pack(fill='both', expand=True, padx=5, pady=5)
         
         # Configure text tags for different message types
         self._configure_message_tags()
         
-        # Character counter (moved to controls frame)
-        self.char_counter = ttk.Label(self.controls_frame, text="Characters: 0/1000", font=('Arial', 8))
-        self.char_counter.pack(side='left', padx=(10, 0))
+        # Message input area
+        self.input_frame = ttk.Frame(self)
+        self.input_frame.pack(fill='x', padx=5, pady=5)
+        
+        # Character counter
+        self.char_counter = ttk.Label(self.input_frame, text="0/1000", font=('Arial', 8))
+        self.char_counter.pack(side='right', padx=(5, 0))
         
         self.send_button = ttk.Button(
             self.input_frame, 
-            text="📤 SEND MESSAGE", 
-            command=self._send_message,
-            width=15
+            text="Send", 
+            command=self._send_message
         )
-        self.send_button.pack(side='right', padx=(5, 10), pady=5)
+        self.send_button.pack(side='right', padx=(5, 0))
         
-        self.message_entry = ttk.Entry(self.input_frame, font=('Arial', 14), width=40)
-        self.message_entry.pack(side='left', fill='x', expand=True, padx=(5, 10), pady=5)
+        self.message_entry = ttk.Entry(self.input_frame)
+        self.message_entry.pack(side='left', fill='x', expand=True)
         self.message_entry.bind('<Return>', self._send_message)
         self.message_entry.bind('<KeyRelease>', self._update_char_counter)
         
-        # Add placeholder text
-        self.message_entry.insert(0, "Type your message here...")
-        self.message_entry.bind('<FocusIn>', self._on_entry_focus_in)
-        self.message_entry.bind('<FocusOut>', self._on_entry_focus_out)
-        self._placeholder_active = True
+        # Chat controls
+        self.controls_frame = ttk.Frame(self)
+        self.controls_frame.pack(fill='x', padx=5, pady=(0, 5))
         
         self.clear_button = ttk.Button(
             self.controls_frame, 
@@ -954,18 +941,15 @@ class ChatFrame(ModuleFrame):
         
         # Callbacks
         self.message_callback: Optional[Callable[[str], None]] = None
-        
-        # Add welcome message to make chat obvious
-        self.add_system_message("💬 Welcome to the group chat! Start typing to send messages.")
     
     def _configure_message_tags(self):
         """Configure text tags for different message types and formatting."""
-        self.chat_display.tag_configure('timestamp', foreground='#6c757d', font=('Consolas', 9))
-        self.chat_display.tag_configure('username', foreground='#0d6efd', font=('Consolas', 10, 'bold'))
-        self.chat_display.tag_configure('message', foreground='#212529', font=('Consolas', 10))
-        self.chat_display.tag_configure('system', foreground='#198754', font=('Consolas', 9, 'italic'))
-        self.chat_display.tag_configure('error', foreground='#dc3545', font=('Consolas', 9, 'italic'))
-        self.chat_display.tag_configure('own_message', foreground='#6f42c1', font=('Consolas', 10, 'bold'))
+        self.chat_display.tag_configure('timestamp', foreground='#6c757d', font=('Consolas', 8))
+        self.chat_display.tag_configure('username', foreground='#0d6efd', font=('Consolas', 9, 'bold'))
+        self.chat_display.tag_configure('message', foreground='#212529', font=('Consolas', 9))
+        self.chat_display.tag_configure('system', foreground='#198754', font=('Consolas', 8, 'italic'))
+        self.chat_display.tag_configure('error', foreground='#dc3545', font=('Consolas', 8, 'italic'))
+        self.chat_display.tag_configure('own_message', foreground='#6f42c1', font=('Consolas', 9))
     
     def set_message_callback(self, callback: Callable[[str], None]):
         """Set callback for sending messages."""
@@ -973,11 +957,6 @@ class ChatFrame(ModuleFrame):
     
     def _send_message(self, event=None):
         """Send a chat message with validation."""
-        # Don't send if placeholder is active
-        if self._placeholder_active:
-            self._show_status("Please enter a message", is_error=True)
-            return
-            
         message_text = self.message_entry.get().strip()
         
         if not message_text:
@@ -992,36 +971,16 @@ class ChatFrame(ModuleFrame):
             try:
                 self.message_callback(message_text)
                 self.message_entry.delete(0, tk.END)
-                self._on_entry_focus_out()  # Reset placeholder
                 self._update_char_counter()
-                self._show_status("Message sent ✓")
+                self._show_status("Message sent")
             except Exception as e:
                 self._show_status(f"Failed to send message: {e}", is_error=True)
         else:
-            self._show_status("Not connected - please connect first", is_error=True)
-    
-    def _on_entry_focus_in(self, event=None):
-        """Handle entry field focus in - remove placeholder text."""
-        if self._placeholder_active:
-            self.message_entry.delete(0, tk.END)
-            self.message_entry.config(foreground='black')
-            self._placeholder_active = False
-    
-    def _on_entry_focus_out(self, event=None):
-        """Handle entry field focus out - add placeholder text if empty."""
-        if not self.message_entry.get().strip():
-            self.message_entry.delete(0, tk.END)
-            self.message_entry.insert(0, "Type your message here...")
-            self.message_entry.config(foreground='gray')
-            self._placeholder_active = True
+            self._show_status("Not connected", is_error=True)
     
     def _update_char_counter(self, event=None):
         """Update character counter display."""
-        if self._placeholder_active:
-            current_length = 0
-        else:
-            current_length = len(self.message_entry.get())
-        
+        current_length = len(self.message_entry.get())
         self.char_counter.config(text=f"{current_length}/1000")
         
         # Change color based on length
@@ -2123,10 +2082,9 @@ class GUIManager:
         right_half.rowconfigure(0, weight=1)  # Chat takes most space
         right_half.columnconfigure(0, weight=1)
         
-        # Chat frame (top priority for space) - Make it more prominent
+        # Chat frame (top priority for space)
         self.chat_frame = ChatFrame(right_half)
         self.chat_frame.grid(row=0, column=0, sticky='nsew', pady=(0, 5))
-        self.chat_frame.configure(relief='raised', borderwidth=3)
         
         # Screen share controls
         self.screen_share_frame = ScreenShareFrame(right_half)
