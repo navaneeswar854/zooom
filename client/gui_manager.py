@@ -1124,9 +1124,12 @@ class ChatFrame(ModuleFrame):
             try:
                 self.message_callback(message_text)
                 self.message_entry.delete(0, tk.END)
-                self._on_entry_focus_out()  # Reset placeholder
+                # Don't reset placeholder after sending - keep input ready for next message
+                self.placeholder_active = False
                 self._update_char_counter()
                 self._show_status("Message sent ✓", is_error=False)
+                # Keep focus on input for continuous typing
+                self.message_entry.focus_set()
             except Exception as e:
                 self._show_status(f"Failed to send: {e}", is_error=True)
         else:
@@ -2061,25 +2064,28 @@ class GUIManager:
     
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("LAN Collaboration Suite")
+        self.root.title("🚀 LAN Collaboration Suite - Modern Interface")
         
         # Get screen dimensions for responsive sizing
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         
-        # Set window size based on screen size (80% of screen)
-        window_width = int(screen_width * 0.8)
-        window_height = int(screen_height * 0.8)
+        # Set window size based on screen size (85% of screen for better visibility)
+        window_width = int(screen_width * 0.85)
+        window_height = int(screen_height * 0.85)
         
         # Center the window
         x = (screen_width - window_width) // 2
         y = (screen_height - window_height) // 2
         
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
-        self.root.minsize(1000, 700)  # Increased minimum size
+        self.root.minsize(1200, 800)  # Increased minimum size for tabbed interface
+        
+        # Modern styling
+        self.root.configure(bg='#f8f9fa')
         
         # Make window resizable and responsive
-        self.root.rowconfigure(0, weight=1)
+        self.root.rowconfigure(1, weight=1)  # Main content area
         self.root.columnconfigure(0, weight=1)
         
         # Set application icon and styling
@@ -2097,13 +2103,17 @@ class GUIManager:
         self.file_transfer_frame: Optional[FileTransferFrame] = None
         self.participant_frame: Optional[ParticipantListFrame] = None
         
+        # Tabbed interface
+        self.notebook: Optional[ttk.Notebook] = None
+        self.tab_frames = {}
+        
         # Connection state
         self.connected = False
         
         # Real-time update tracking
         self.last_update_time = None
         
-        self._create_interface()
+        self._create_modern_interface()
         self.setup_enhanced_callbacks()
         
         # Start real-time updates
@@ -2156,118 +2166,219 @@ class GUIManager:
             # Force close if graceful shutdown fails
             self.root.destroy()
     
-    def _create_interface(self):
-        """Create the main interface layout."""
-        # Main container
-        main_container = ttk.Frame(self.root)
-        main_container.pack(fill='both', expand=True, padx=10, pady=10)
+    def _create_modern_interface(self):
+        """Create the modern tabbed interface layout."""
+        # Top section: Connection controls (compact header)
+        self._create_connection_header()
         
-        # Top section: Connection controls
-        self._create_connection_section(main_container)
+        # Main tabbed interface
+        self._create_tabbed_interface()
         
-        # Middle section: Main collaboration modules
-        self._create_modules_section(main_container)
-        
-        # Right section: Participant list
-        self._create_participant_section(main_container)
+        # Status bar at bottom
+        self._create_status_bar()
     
-    def _create_connection_section(self, parent):
-        """Create compact connection controls section."""
-        connection_frame = ttk.LabelFrame(parent, text="Connection", padding=5)
-        connection_frame.pack(fill='x', pady=(0, 5))
+    def _create_connection_header(self):
+        """Create compact connection header."""
+        header_frame = tk.Frame(self.root, bg='#2c3e50', height=60)
+        header_frame.pack(fill='x', side='top')
+        header_frame.pack_propagate(False)
         
-        # Main connection row
-        main_row = ttk.Frame(connection_frame)
-        main_row.pack(fill='x')
+        # Left side - App title
+        title_frame = tk.Frame(header_frame, bg='#2c3e50')
+        title_frame.pack(side='left', fill='y', padx=20, pady=10)
         
-        # Server input (more compact)
-        ttk.Label(main_row, text="Server:").pack(side='left')
-        self.server_entry = ttk.Entry(main_row, width=12)
-        self.server_entry.pack(side='left', padx=(2, 8))
+        title_label = tk.Label(
+            title_frame,
+            text="🚀 LAN Collaboration Suite",
+            font=('Segoe UI', 14, 'bold'),
+            fg='white',
+            bg='#2c3e50'
+        )
+        title_label.pack(side='left', anchor='w')
+        
+        # Right side - Connection controls
+        controls_frame = tk.Frame(header_frame, bg='#2c3e50')
+        controls_frame.pack(side='right', fill='y', padx=20, pady=10)
+        
+        # Server input
+        tk.Label(controls_frame, text="Server:", fg='white', bg='#2c3e50', font=('Segoe UI', 9)).pack(side='left', padx=(0, 5))
+        self.server_entry = tk.Entry(controls_frame, width=15, font=('Segoe UI', 9))
+        self.server_entry.pack(side='left', padx=(0, 10))
         self.server_entry.insert(0, "localhost")
         
         # Username input
-        ttk.Label(main_row, text="Username:").pack(side='left')
-        self.username_entry = ttk.Entry(main_row, width=12)
-        self.username_entry.pack(side='left', padx=(2, 8))
+        tk.Label(controls_frame, text="Username:", fg='white', bg='#2c3e50', font=('Segoe UI', 9)).pack(side='left', padx=(0, 5))
+        self.username_entry = tk.Entry(controls_frame, width=12, font=('Segoe UI', 9))
+        self.username_entry.pack(side='left', padx=(0, 10))
         self.username_entry.insert(0, "User")
         
         # Connection buttons
-        self.connect_button = ttk.Button(
-            main_row, 
-            text="Connect", 
-            command=self._connect_clicked
+        self.connect_button = tk.Button(
+            controls_frame,
+            text="🔗 Connect",
+            command=self._connect_clicked,
+            bg='#27ae60',
+            fg='white',
+            font=('Segoe UI', 9, 'bold'),
+            relief='flat',
+            padx=15,
+            cursor='hand2'
         )
-        self.connect_button.pack(side='left', padx=2)
+        self.connect_button.pack(side='left', padx=(0, 5))
         
-        self.disconnect_button = ttk.Button(
-            main_row, 
-            text="Disconnect", 
+        self.disconnect_button = tk.Button(
+            controls_frame,
+            text="❌ Disconnect",
             command=self._disconnect_clicked,
+            bg='#e74c3c',
+            fg='white',
+            font=('Segoe UI', 9, 'bold'),
+            relief='flat',
+            padx=15,
+            cursor='hand2',
             state='disabled'
         )
-        self.disconnect_button.pack(side='left', padx=2)
+        self.disconnect_button.pack(side='left')
         
-        # Status display (more compact)
-        self.status_label = ttk.Label(main_row, text="Status: Disconnected", font=('Arial', 9))
-        self.status_label.pack(side='right', padx=5)
+        # Connection status indicator
+        self.connection_status = tk.Label(
+            controls_frame,
+            text="● Disconnected",
+            fg='#e74c3c',
+            bg='#2c3e50',
+            font=('Segoe UI', 9, 'bold')
+        )
+        self.connection_status.pack(side='left', padx=(15, 0))
     
-    def _create_modules_section(self, parent):
-        """Create the main collaboration modules section with responsive layout."""
-        modules_frame = ttk.Frame(parent)
-        modules_frame.pack(fill='both', expand=True)
+    def _create_tabbed_interface(self):
+        """Create the main tabbed interface with modern styling."""
+        # Create notebook with custom styling
+        style = ttk.Style()
+        style.theme_use('clam')
         
-        # Configure grid weights for responsive layout
-        modules_frame.columnconfigure(0, weight=1)  # Left half (video)
-        modules_frame.columnconfigure(1, weight=1)  # Right half (chat/controls)
-        modules_frame.rowconfigure(0, weight=1)
+        # Configure tab styling
+        style.configure('Modern.TNotebook', background='#f8f9fa', borderwidth=0)
+        style.configure('Modern.TNotebook.Tab', 
+                       padding=[20, 10], 
+                       font=('Segoe UI', 11, 'bold'),
+                       focuscolor='none')
         
-        # LEFT HALF: Large Video Grid
-        left_half = ttk.Frame(modules_frame)
-        left_half.grid(row=0, column=0, sticky='nsew', padx=(0, 5))
-        left_half.rowconfigure(0, weight=1)
-        left_half.columnconfigure(0, weight=1)
+        # Create notebook
+        self.notebook = ttk.Notebook(self.root, style='Modern.TNotebook')
+        self.notebook.pack(fill='both', expand=True, padx=10, pady=(10, 0))
         
-        # Large video frame taking up most of left half
-        self.video_frame = VideoFrame(left_half)
-        self.video_frame.grid(row=0, column=0, sticky='nsew', pady=(0, 5))
+        # Create tabs
+        self._create_chat_tab()
+        self._create_video_tab()
+        self._create_screen_share_tab()
+        self._create_file_sharing_tab()
         
-        # Audio controls at bottom of left half
-        self.audio_frame = AudioFrame(left_half)
-        self.audio_frame.grid(row=1, column=0, sticky='ew')
-        
-        # RIGHT HALF: Chat, Controls, and Participants
-        right_half = ttk.Frame(modules_frame)
-        right_half.grid(row=0, column=1, sticky='nsew', padx=(5, 0))
-        right_half.rowconfigure(0, weight=1)  # Chat takes most space
-        right_half.columnconfigure(0, weight=1)
-        
-        # Chat frame (top priority for space)
-        self.chat_frame = ChatFrame(right_half)
-        self.chat_frame.grid(row=0, column=0, sticky='nsew', pady=(0, 5))
-        
-        # Screen share controls
-        self.screen_share_frame = ScreenShareFrame(right_half)
-        self.screen_share_frame.grid(row=1, column=0, sticky='ew', pady=(0, 5))
-        
-        # Participants and file transfer in bottom section
-        bottom_right_frame = ttk.Frame(right_half)
-        bottom_right_frame.grid(row=2, column=0, sticky='ew')
-        bottom_right_frame.columnconfigure(0, weight=1)
-        bottom_right_frame.columnconfigure(1, weight=1)
-        
-        # Participant list (left side of bottom)
-        self.participant_frame = ParticipantListFrame(bottom_right_frame)
-        self.participant_frame.grid(row=0, column=0, sticky='nsew', padx=(0, 2))
-        
-        # File transfer (right side of bottom)
-        self.file_transfer_frame = FileTransferFrame(bottom_right_frame)
-        self.file_transfer_frame.grid(row=0, column=1, sticky='nsew', padx=(2, 0))
+        # Bind tab change event
+        self.notebook.bind('<<NotebookTabChanged>>', self._on_tab_changed)
     
-    def _create_participant_section(self, parent):
-        """Participant section is now integrated into the right half layout."""
-        # This method is now handled in _create_modules_section
-        pass
+    def _create_chat_tab(self):
+        """Create the chat tab with enhanced interface."""
+        chat_tab = tk.Frame(self.notebook, bg='#ffffff')
+        self.notebook.add(chat_tab, text='💬 Chat')
+        self.tab_frames['chat'] = chat_tab
+        
+        # Create chat frame
+        self.chat_frame = ChatFrame(chat_tab)
+        self.chat_frame.pack(fill='both', expand=True, padx=10, pady=10)
+    
+    def _create_video_tab(self):
+        """Create the video conference tab."""
+        video_tab = tk.Frame(self.notebook, bg='#ffffff')
+        self.notebook.add(video_tab, text='📹 Video Conference')
+        self.tab_frames['video'] = video_tab
+        
+        # Main video area
+        video_container = tk.Frame(video_tab, bg='#ffffff')
+        video_container.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # Video controls at top
+        controls_frame = tk.Frame(video_container, bg='#f8f9fa', relief='raised', bd=1)
+        controls_frame.pack(fill='x', pady=(0, 10))
+        
+        # Create video and audio frames
+        self.video_frame = VideoFrame(video_container)
+        self.video_frame.pack(fill='both', expand=True)
+        
+        self.audio_frame = AudioFrame(controls_frame)
+        self.audio_frame.pack(side='left', padx=10, pady=10)
+        
+        # Participant list on the right
+        participants_container = tk.Frame(video_container, bg='#f8f9fa', width=200)
+        participants_container.pack(side='right', fill='y', padx=(10, 0))
+        participants_container.pack_propagate(False)
+        
+        self.participant_frame = ParticipantListFrame(participants_container)
+        self.participant_frame.pack(fill='both', expand=True, padx=5, pady=5)
+    
+    def _create_screen_share_tab(self):
+        """Create the screen sharing tab."""
+        screen_tab = tk.Frame(self.notebook, bg='#ffffff')
+        self.notebook.add(screen_tab, text='🖥️ Screen Share')
+        self.tab_frames['screen'] = screen_tab
+        
+        # Create screen share frame
+        self.screen_share_frame = ScreenShareFrame(screen_tab)
+        self.screen_share_frame.pack(fill='both', expand=True, padx=10, pady=10)
+    
+    def _create_file_sharing_tab(self):
+        """Create the file sharing tab."""
+        file_tab = tk.Frame(self.notebook, bg='#ffffff')
+        self.notebook.add(file_tab, text='📁 File Sharing')
+        self.tab_frames['file'] = file_tab
+        
+        # Create file transfer frame
+        self.file_transfer_frame = FileTransferFrame(file_tab)
+        self.file_transfer_frame.pack(fill='both', expand=True, padx=10, pady=10)
+    
+    def _create_status_bar(self):
+        """Create status bar at bottom."""
+        status_frame = tk.Frame(self.root, bg='#ecf0f1', height=30, relief='sunken', bd=1)
+        status_frame.pack(fill='x', side='bottom')
+        status_frame.pack_propagate(False)
+        
+        # Status text
+        self.status_text = tk.Label(
+            status_frame,
+            text="Ready - Select a tab to start collaborating",
+            bg='#ecf0f1',
+            fg='#2c3e50',
+            font=('Segoe UI', 9),
+            anchor='w'
+        )
+        self.status_text.pack(side='left', padx=10, pady=5)
+        
+        # Current time
+        self.time_label = tk.Label(
+            status_frame,
+            text="",
+            bg='#ecf0f1',
+            fg='#7f8c8d',
+            font=('Segoe UI', 9)
+        )
+        self.time_label.pack(side='right', padx=10, pady=5)
+        
+        # Update time
+        self._update_time()
+    
+    def _on_tab_changed(self, event=None):
+        """Handle tab change events."""
+        if self.notebook:
+            current_tab = self.notebook.tab(self.notebook.select(), "text")
+            self.status_text.config(text=f"Active: {current_tab}")
+    
+    def _update_time(self):
+        """Update the time display."""
+        from datetime import datetime
+        current_time = datetime.now().strftime("%H:%M:%S")
+        self.time_label.config(text=current_time)
+        self.root.after(1000, self._update_time)
+    
+
     
     def _connect_clicked(self):
         """Handle connect button click."""
@@ -2341,21 +2452,27 @@ class GUIManager:
     
     def update_connection_status(self, status: str):
         """Update connection status display and button states."""
-        self.status_label.config(text=f"Status: {status}")
-        
-        # Update button states based on connection status
+        # Update header status indicator
         if status.lower() == "connected":
             self.connected = True
-            self.connect_button.config(state='disabled')
-            self.disconnect_button.config(state='normal')
+            self.connection_status.config(text="● Connected", fg='#27ae60')
+            self.connect_button.config(state='disabled', bg='#95a5a6')
+            self.disconnect_button.config(state='normal', bg='#e74c3c')
             self.server_entry.config(state='disabled')
             self.username_entry.config(state='disabled')
+            self.status_text.config(text="Connected - Ready to collaborate!")
+        elif status.lower() == "connecting":
+            self.connection_status.config(text="● Connecting...", fg='#f39c12')
+            self.connect_button.config(state='disabled', bg='#95a5a6')
+            self.status_text.config(text="Connecting to server...")
         else:
             self.connected = False
-            self.connect_button.config(state='normal')
-            self.disconnect_button.config(state='disabled')
+            self.connection_status.config(text="● Disconnected", fg='#e74c3c')
+            self.connect_button.config(state='normal', bg='#27ae60')
+            self.disconnect_button.config(state='disabled', bg='#95a5a6')
             self.server_entry.config(state='normal')
             self.username_entry.config(state='normal')
+            self.status_text.config(text="Disconnected - Enter server details to connect")
     
     def update_screen_sharing_presenter(self, presenter_name: Optional[str]):
         """Update screen sharing presenter information."""
