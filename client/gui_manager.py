@@ -1265,7 +1265,7 @@ class ChatFrame(ModuleFrame):
             
             if filename:
                 with open(filename, 'w', encoding='utf-8') as f:
-                    f.write("LAN Collaboration Suite - Chat History\n")
+                    f.write("StreamSync Pro - Chat History\n")
                     f.write("=" * 50 + "\n\n")
                     
                     for entry in self.chat_history:
@@ -2070,7 +2070,7 @@ class GUIManager:
     
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("🚀 LAN Collaboration Suite - Modern Interface")
+        self.root.title("🌟 StreamSync Pro - Modern Interface")
         
         # Get screen dimensions for responsive sizing
         screen_width = self.root.winfo_screenwidth()
@@ -2195,7 +2195,7 @@ class GUIManager:
         
         title_label = tk.Label(
             title_frame,
-            text="🚀 LAN Collaboration Suite",
+            text="🌟 StreamSync Pro",
             font=('Segoe UI', 14, 'bold'),
             fg='white',
             bg='#2c3e50'
@@ -2257,88 +2257,387 @@ class GUIManager:
         self.connection_status.pack(side='left', padx=(15, 0))
     
     def _create_tabbed_interface(self):
-        """Create the main tabbed interface with modern styling."""
-        # Create notebook with custom styling
-        style = ttk.Style()
-        style.theme_use('clam')
+        """Create the main interface with vertical sidebar and content area."""
+        # Main container
+        main_container = tk.Frame(self.root, bg='#f8f9fa')
+        main_container.pack(fill='both', expand=True, padx=10, pady=(10, 0))
         
-        # Configure tab styling
-        style.configure('Modern.TNotebook', background='#f8f9fa', borderwidth=0)
-        style.configure('Modern.TNotebook.Tab', 
-                       padding=[20, 10], 
-                       font=('Segoe UI', 11, 'bold'),
-                       focuscolor='none')
+        # Left sidebar for vertical tabs (icons only)
+        self._create_vertical_sidebar(main_container)
         
-        # Create notebook
-        self.notebook = ttk.Notebook(self.root, style='Modern.TNotebook')
-        self.notebook.pack(fill='both', expand=True, padx=10, pady=(10, 0))
+        # Right content area
+        self._create_content_area(main_container)
         
-        # Create tabs
-        self._create_chat_tab()
-        self._create_video_tab()
-        self._create_screen_share_tab()
-        self._create_file_sharing_tab()
+        # Create all tab content frames
+        self._create_all_tab_content()
         
-        # Bind tab change event
-        self.notebook.bind('<<NotebookTabChanged>>', self._on_tab_changed)
+        # Show default tab (video) - will be called after status bar is created
     
-    def _create_chat_tab(self):
-        """Create the chat tab with enhanced interface."""
-        chat_tab = tk.Frame(self.notebook, bg='#ffffff')
-        self.notebook.add(chat_tab, text='💬 Chat')
-        self.tab_frames['chat'] = chat_tab
+    def _create_vertical_sidebar(self, parent):
+        """Create vertical sidebar with icon-only tabs."""
+        self.sidebar = tk.Frame(parent, bg='#2c3e50', width=80)
+        self.sidebar.pack(side='left', fill='y')
+        self.sidebar.pack_propagate(False)
+        
+        # Tab buttons with icons only
+        self.tab_buttons = {}
+        
+        tabs = [
+            ('video', '📹', 'Video Conference'),
+            ('chat', '💬', 'Chat'),
+            ('screen', '🖥️', 'Screen Share'),
+            ('files', '📁', 'File Sharing')
+        ]
+        
+        for tab_id, icon, tooltip in tabs:
+            btn = tk.Button(
+                self.sidebar,
+                text=icon,
+                font=('Segoe UI', 20),
+                bg='#34495e',
+                fg='white',
+                relief='flat',
+                bd=0,
+                padx=10,
+                pady=15,
+                cursor='hand2',
+                command=lambda t=tab_id: self._show_tab(t)
+            )
+            btn.pack(fill='x', padx=5, pady=5)
+            
+            # Add hover effects
+            self._add_tab_hover_effects(btn, tab_id)
+            
+            # Store button reference
+            self.tab_buttons[tab_id] = btn
+        
+        # Current active tab
+        self.current_tab = None
+    
+    def _create_content_area(self, parent):
+        """Create the main content area for tab content."""
+        self.content_area = tk.Frame(parent, bg='#ffffff')
+        self.content_area.pack(side='right', fill='both', expand=True, padx=(10, 0))
+        
+        # Content frames will be created and shown/hidden as needed
+        self.tab_frames = {}
+    
+    def _add_tab_hover_effects(self, button, tab_id):
+        """Add hover effects to tab buttons."""
+        def on_enter(event):
+            if self.current_tab != tab_id:
+                button.config(bg='#3498db')
+        
+        def on_leave(event):
+            if self.current_tab != tab_id:
+                button.config(bg='#34495e')
+        
+        button.bind('<Enter>', on_enter)
+        button.bind('<Leave>', on_leave)
+    
+    def _show_tab(self, tab_id):
+        """Show the specified tab content."""
+        # Update button states
+        for tid, btn in self.tab_buttons.items():
+            if tid == tab_id:
+                btn.config(bg='#3498db')  # Active color
+            else:
+                btn.config(bg='#34495e')  # Inactive color
+        
+        # Hide all tab frames
+        for frame in self.tab_frames.values():
+            frame.pack_forget()
+        
+        # Show selected tab frame
+        if tab_id in self.tab_frames:
+            self.tab_frames[tab_id].pack(fill='both', expand=True)
+        
+        # Update current tab
+        self.current_tab = tab_id
+        
+        # Update status (if status_text exists)
+        if hasattr(self, 'status_text'):
+            tab_names = {
+                'video': 'Video Conference',
+                'chat': 'Chat',
+                'screen': 'Screen Share', 
+                'files': 'File Sharing'
+            }
+            self.status_text.config(text=f"Active: {tab_names.get(tab_id, tab_id)}")
+    
+    def _create_all_tab_content(self):
+        """Create all tab content frames."""
+        self._create_video_content()
+        self._create_chat_content()
+        self._create_screen_content()
+        self._create_files_content()
+    
+    def _create_chat_content(self):
+        """Create the chat content."""
+        chat_frame = tk.Frame(self.content_area, bg='#ffffff')
+        self.tab_frames['chat'] = chat_frame
         
         # Create chat frame
-        self.chat_frame = ChatFrame(chat_tab)
+        self.chat_frame = ChatFrame(chat_frame)
         self.chat_frame.pack(fill='both', expand=True, padx=10, pady=10)
     
-    def _create_video_tab(self):
-        """Create the video conference tab."""
-        video_tab = tk.Frame(self.notebook, bg='#ffffff')
-        self.notebook.add(video_tab, text='📹 Video Conference')
-        self.tab_frames['video'] = video_tab
+    def _create_video_content(self):
+        """Create the video conference content with compact controls."""
+        video_frame = tk.Frame(self.content_area, bg='#ffffff')
+        self.tab_frames['video'] = video_frame
         
-        # Main video area
-        video_container = tk.Frame(video_tab, bg='#ffffff')
-        video_container.pack(fill='both', expand=True, padx=10, pady=10)
+        # Compact controls at top (side by side)
+        controls_container = tk.Frame(video_frame, bg='#ecf0f1', height=60)
+        controls_container.pack(fill='x', padx=10, pady=10)
+        controls_container.pack_propagate(False)
         
-        # Video controls at top
-        controls_frame = tk.Frame(video_container, bg='#f8f9fa', relief='raised', bd=1)
-        controls_frame.pack(fill='x', pady=(0, 10))
+        # Left side - Media controls (side by side)
+        media_controls = tk.Frame(controls_container, bg='#ecf0f1')
+        media_controls.pack(side='left', pady=10)
+        
+        # Video button
+        self.video_btn = tk.Button(
+            media_controls,
+            text="📹 Enable Video",
+            font=('Segoe UI', 10, 'bold'),
+            bg='#3498db',
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2',
+            command=self._toggle_video
+        )
+        self.video_btn.pack(side='left', padx=(0, 5))
+        
+        # Audio button
+        self.audio_btn = tk.Button(
+            media_controls,
+            text="🔊 Enable Audio",
+            font=('Segoe UI', 10, 'bold'),
+            bg='#27ae60',
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2',
+            command=self._toggle_audio
+        )
+        self.audio_btn.pack(side='left', padx=(0, 5))
+        
+        # Mute button
+        self.mute_btn = tk.Button(
+            media_controls,
+            text="🔇 Mute",
+            font=('Segoe UI', 10, 'bold'),
+            bg='#f39c12',
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2',
+            state='disabled',
+            command=self._toggle_mute
+        )
+        self.mute_btn.pack(side='left', padx=(0, 5))
+        
+        # Right side - Full screen button
+        fullscreen_controls = tk.Frame(controls_container, bg='#ecf0f1')
+        fullscreen_controls.pack(side='right', pady=10)
+        
+        self.video_fullscreen_btn = tk.Button(
+            fullscreen_controls,
+            text="⛶ Full Screen",
+            font=('Segoe UI', 10, 'bold'),
+            bg='#9b59b6',
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2',
+            command=self._toggle_video_fullscreen
+        )
+        self.video_fullscreen_btn.pack(side='right')
+        
+        # Main video area (much larger now)
+        video_container = tk.Frame(video_frame, bg='#000000')
+        video_container.pack(fill='both', expand=True, padx=10, pady=(0, 10))
         
         # Create video and audio frames
         self.video_frame = VideoFrame(video_container)
         self.video_frame.pack(fill='both', expand=True)
         
-        self.audio_frame = AudioFrame(controls_frame)
-        self.audio_frame.pack(side='left', padx=10, pady=10)
+        self.audio_frame = AudioFrame(video_container)  # Hidden, just for functionality
         
-        # Participant list on the right
-        participants_container = tk.Frame(video_container, bg='#f8f9fa', width=200)
-        participants_container.pack(side='right', fill='y', padx=(10, 0))
+        # Participant list (smaller, at bottom right)
+        participants_container = tk.Frame(video_frame, bg='#f8f9fa', height=150)
+        participants_container.pack(fill='x', padx=10, pady=(0, 10))
         participants_container.pack_propagate(False)
         
         self.participant_frame = ParticipantListFrame(participants_container)
         self.participant_frame.pack(fill='both', expand=True, padx=5, pady=5)
-    
-    def _create_screen_share_tab(self):
-        """Create the screen sharing tab."""
-        screen_tab = tk.Frame(self.notebook, bg='#ffffff')
-        self.notebook.add(screen_tab, text='🖥️ Screen Share')
-        self.tab_frames['screen'] = screen_tab
         
-        # Create screen share frame
-        self.screen_share_frame = ScreenShareFrame(screen_tab)
+        # Video state
+        self.video_enabled = False
+        self.audio_enabled = False
+        self.audio_muted = False
+        self.video_fullscreen = False
+        self.screen_fullscreen = False
+    
+    def _toggle_video(self):
+        """Toggle video on/off."""
+        self.video_enabled = not self.video_enabled
+        if self.video_frame:
+            self.video_frame._toggle_video()
+        
+        # Update button
+        if self.video_enabled:
+            self.video_btn.config(text="📹 Disable Video", bg='#e74c3c')
+        else:
+            self.video_btn.config(text="📹 Enable Video", bg='#3498db')
+    
+    def _toggle_audio(self):
+        """Toggle audio on/off."""
+        self.audio_enabled = not self.audio_enabled
+        if self.audio_frame:
+            self.audio_frame._toggle_audio()
+        
+        # Update buttons
+        if self.audio_enabled:
+            self.audio_btn.config(text="🔊 Disable Audio", bg='#e74c3c')
+            self.mute_btn.config(state='normal')
+        else:
+            self.audio_btn.config(text="🔊 Enable Audio", bg='#27ae60')
+            self.mute_btn.config(state='disabled')
+    
+    def _toggle_mute(self):
+        """Toggle mute on/off."""
+        self.audio_muted = not self.audio_muted
+        if self.audio_frame:
+            self.audio_frame._toggle_mute()
+        
+        # Update button
+        if self.audio_muted:
+            self.mute_btn.config(text="🔊 Unmute", bg='#e74c3c')
+        else:
+            self.mute_btn.config(text="🔇 Mute", bg='#f39c12')
+    
+    def _toggle_screen_share(self):
+        """Toggle screen sharing on/off."""
+        if self.screen_share_frame:
+            self.screen_share_frame._toggle_screen_share()
+    
+    def _toggle_video_fullscreen(self):
+        """Toggle video full screen mode."""
+        if not self.video_fullscreen:
+            self._enter_fullscreen('video')
+        else:
+            self._exit_fullscreen()
+    
+    def _toggle_screen_fullscreen(self):
+        """Toggle screen share full screen mode."""
+        if not self.screen_fullscreen:
+            self._enter_fullscreen('screen')
+        else:
+            self._exit_fullscreen()
+    
+    def _enter_fullscreen(self, mode):
+        """Enter full screen mode."""
+        if mode == 'video':
+            self.video_fullscreen = True
+            self.video_fullscreen_btn.config(text="⛶ Exit Full Screen")
+            # Hide sidebar and make video area full screen
+            self.sidebar.pack_forget()
+            if hasattr(self, 'video_frame'):
+                self.video_frame.master.pack(fill='both', expand=True, padx=0, pady=0)
+        else:
+            self.screen_fullscreen = True
+            self.screen_fullscreen_btn.config(text="⛶ Exit Full Screen")
+            # Hide sidebar and make screen area full screen
+            self.sidebar.pack_forget()
+            if hasattr(self, 'screen_share_frame'):
+                self.screen_share_frame.master.pack(fill='both', expand=True, padx=0, pady=0)
+        
+        # Add escape key binding
+        self.root.bind('<Escape>', lambda e: self._exit_fullscreen())
+    
+    def _exit_fullscreen(self):
+        """Exit full screen mode."""
+        # Restore sidebar
+        self.sidebar.pack(side='left', fill='y')
+        
+        # Reset full screen states
+        if self.video_fullscreen:
+            self.video_fullscreen = False
+            self.video_fullscreen_btn.config(text="⛶ Full Screen")
+        
+        if self.screen_fullscreen:
+            self.screen_fullscreen = False
+            self.screen_fullscreen_btn.config(text="⛶ Full Screen")
+        
+        # Restore normal layout
+        self.content_area.pack(side='right', fill='both', expand=True, padx=(10, 0))
+        
+        # Remove escape key binding
+        self.root.unbind('<Escape>')
+    
+    def _create_screen_content(self):
+        """Create the screen sharing content with full screen option."""
+        screen_frame = tk.Frame(self.content_area, bg='#ffffff')
+        self.tab_frames['screen'] = screen_frame
+        
+        # Screen share controls at top
+        screen_controls = tk.Frame(screen_frame, bg='#ecf0f1', height=60)
+        screen_controls.pack(fill='x', padx=10, pady=10)
+        screen_controls.pack_propagate(False)
+        
+        # Left side - Screen share button
+        share_controls = tk.Frame(screen_controls, bg='#ecf0f1')
+        share_controls.pack(side='left', pady=10)
+        
+        self.screen_share_btn = tk.Button(
+            share_controls,
+            text="🖥️ Start Screen Share",
+            font=('Segoe UI', 10, 'bold'),
+            bg='#e74c3c',
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2',
+            command=self._toggle_screen_share
+        )
+        self.screen_share_btn.pack(side='left')
+        
+        # Right side - Full screen button
+        screen_fullscreen_controls = tk.Frame(screen_controls, bg='#ecf0f1')
+        screen_fullscreen_controls.pack(side='right', pady=10)
+        
+        self.screen_fullscreen_btn = tk.Button(
+            screen_fullscreen_controls,
+            text="⛶ Full Screen",
+            font=('Segoe UI', 10, 'bold'),
+            bg='#9b59b6',
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2',
+            command=self._toggle_screen_fullscreen
+        )
+        self.screen_fullscreen_btn.pack(side='right')
+        
+        # Create screen share frame (larger area)
+        self.screen_share_frame = ScreenShareFrame(screen_frame)
         self.screen_share_frame.pack(fill='both', expand=True, padx=10, pady=10)
     
-    def _create_file_sharing_tab(self):
-        """Create the file sharing tab."""
-        file_tab = tk.Frame(self.notebook, bg='#ffffff')
-        self.notebook.add(file_tab, text='📁 File Sharing')
-        self.tab_frames['file'] = file_tab
+    def _create_files_content(self):
+        """Create the file sharing content."""
+        files_frame = tk.Frame(self.content_area, bg='#ffffff')
+        self.tab_frames['files'] = files_frame
         
         # Create file transfer frame
-        self.file_transfer_frame = FileTransferFrame(file_tab)
+        self.file_transfer_frame = FileTransferFrame(files_frame)
         self.file_transfer_frame.pack(fill='both', expand=True, padx=10, pady=10)
     
     def _create_status_bar(self):
@@ -2370,12 +2669,11 @@ class GUIManager:
         
         # Update time
         self._update_time()
+        
+        # Now show default tab
+        self._show_tab('video')
     
-    def _on_tab_changed(self, event=None):
-        """Handle tab change events."""
-        if self.notebook:
-            current_tab = self.notebook.tab(self.notebook.select(), "text")
-            self.status_text.config(text=f"Active: {current_tab}")
+
     
     def _update_time(self):
         """Update the time display."""
