@@ -63,19 +63,11 @@ class VideoFrame(ModuleFrame):
     def __init__(self, parent):
         super().__init__(parent, "Video Conference")
         
-        # Video controls at top
-        self.controls_frame = ttk.Frame(self)
-        self.controls_frame.pack(fill='x', padx=5, pady=5)
+        # Video quality indicator (keep for status)
+        self.quality_frame = ttk.Frame(self)
+        self.quality_frame.pack(fill='x', padx=5, pady=2)
         
-        self.video_button = ttk.Button(
-            self.controls_frame, 
-            text="Enable Video", 
-            command=self._toggle_video
-        )
-        self.video_button.pack(side='left', padx=2)
-        
-        # Video quality indicator
-        self.quality_label = ttk.Label(self.controls_frame, text="Quality: Auto")
+        self.quality_label = ttk.Label(self.quality_frame, text="Quality: Auto", font=('Segoe UI', 9))
         self.quality_label.pack(side='right', padx=5)
         
         # Large video display area with grid layout
@@ -105,60 +97,110 @@ class VideoFrame(ModuleFrame):
         self.video_callback = callback
     
     def _toggle_video(self):
-        """Toggle video on/off."""
+        """Toggle video on/off (called by external controls)."""
         self.enabled = not self.enabled
         self._update_status_indicator()
-        
-        button_text = "Disable Video" if self.enabled else "Enable Video"
-        self.video_button.config(text=button_text)
         
         if self.video_callback:
             self.video_callback(self.enabled)
     
     def _create_video_slots(self):
-        """Create video slots in a 2x2 grid."""
+        """Create video slots in a 2x2 grid with name labels."""
         positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
         
         for i, (row, col) in enumerate(positions):
-            slot_frame = tk.Frame(self.video_display, bg='black', relief='solid', borderwidth=1)
-            slot_frame.grid(row=row, column=col, sticky='nsew', padx=2, pady=2)
+            # Main slot container
+            slot_container = tk.Frame(self.video_display, bg='black', relief='solid', borderwidth=1)
+            slot_container.grid(row=row, column=col, sticky='nsew', padx=2, pady=2)
             
-            # Placeholder content
-            slot_text = "Your Video\n(Enable video)" if i == 0 else f"Video Slot {i+1}\nNo participant"
+            # Video area
+            video_frame = tk.Frame(slot_container, bg='black')
+            video_frame.pack(fill='both', expand=True)
+            
+            # Name label overlay (positioned at bottom of video)
+            name_label = tk.Label(
+                slot_container,
+                text="You" if i == 0 else "Empty Slot",
+                fg='white',
+                bg='#2c3e50',  # Dark background
+                font=('Segoe UI', 10, 'bold'),
+                padx=10,
+                pady=2
+            )
+            name_label.pack(side='bottom', fill='x')
+            
+            # Placeholder content for video area
+            slot_text = "Your Video\n(Enable video)" if i == 0 else f"Waiting for\nparticipant..."
             placeholder_label = tk.Label(
-                slot_frame, 
+                video_frame, 
                 text=slot_text, 
-                fg='lightgreen' if i == 0 else 'white', 
+                fg='lightgreen' if i == 0 else 'gray', 
                 bg='black',
-                font=('Arial', 10)
+                font=('Segoe UI', 10)
             )
             placeholder_label.pack(expand=True)
             
             self.video_slots[i] = {
-                'frame': slot_frame,
-                'label': placeholder_label,
+                'container': slot_container,
+                'video_frame': video_frame,
+                'name_label': name_label,
+                'placeholder_label': placeholder_label,
                 'participant_id': 'local' if i == 0 else None,
+                'participant_name': 'You' if i == 0 else None,
                 'active': False
             }
     
     def update_video_feeds(self, participants: Dict[str, Any]):
-        """Update video feed display with participant information."""
+        """Update video feed display with participant information and names."""
         # Get participants with video enabled
-        active_participants = [p for p in participants.values() 
+        active_participants = [(pid, p) for pid, p in participants.items() 
                              if p.get('video_enabled', False)]
         
-        # Clear all slots first to prevent duplicates
+        # Clear all remote slots first (keep slot 0 for local video)
         for slot_id, slot in self.video_slots.items():
             if slot_id > 0:  # Don't clear slot 0 (local video)
-                if self._widget_exists(slot['label']):
-                    slot['label'].config(
-                        text=f"Video Slot {slot_id+1}\nNo participant",
-                        fg='white'
+                if self._widget_exists(slot['placeholder_label']):
+                    slot['placeholder_label'].config(
+                        text="Waiting for\nparticipant...",
+                        fg='gray'
                     )
+                if self._widget_exists(slot['name_label']):
+                    slot['name_label'].config(text="Empty Slot")
                 slot['participant_id'] = None
+                slot['participant_name'] = None
                 slot['active'] = False
         
         # Assign participants to available slots (skip slot 0 for local video)
+        for i, (participant_id, participant) in enumerate(active_participants):
+            slot_id = i + 1  # Start from slot 1 (slot 0 is local)
+            if slot_id < len(self.video_slots):
+                slot = self.video_slots[slot_id]
+                username = participant.get('username', f'User {participant_id[:8]}')
+                
+                # Update slot information
+                slot['participant_id'] = participant_id
+                slot['participant_name'] = username
+                slot['active'] = True
+                
+                # Update name label
+                if self._widget_exists(slot['name_label']):
+                    slot['name_label'].config(text=username)
+                
+                # Update placeholder
+                if self._widget_exists(slot['placeholder_label']):
+                    slot['placeholder_label'].config(
+                        text=f"{username}\n(Video active)",
+                        fg='lightgreen'
+                    )
+    
+    def update_participant_name(self, participant_id: str, username: str):
+        """Update participant name on their video slot."""
+        for slot in self.video_slots.values():
+            if slot['participant_id'] == participant_id:
+                slot['participant_name'] = username
+                if self._widget_exists(slot['name_label']):
+                    slot['name_label'].config(text=username)
+                break
         assigned_participants = set()  # Track assigned participants to prevent duplicates
         slot_index = 1  # Start from slot 1 (slot 0 is for local video)
         
@@ -775,24 +817,9 @@ class AudioFrame(ModuleFrame):
     def __init__(self, parent):
         super().__init__(parent, "Audio Conference")
         
-        # Audio controls
-        self.controls_frame = ttk.Frame(self)
-        self.controls_frame.pack(fill='x', padx=5, pady=5)
-        
-        self.audio_button = ttk.Button(
-            self.controls_frame, 
-            text="Enable Audio", 
-            command=self._toggle_audio
-        )
-        self.audio_button.pack(side='left', padx=2)
-        
-        self.mute_button = ttk.Button(
-            self.controls_frame, 
-            text="Mute", 
-            command=self._toggle_mute,
-            state='disabled'
-        )
-        self.mute_button.pack(side='left', padx=2)
+        # Audio status (no buttons, controlled externally)
+        self.status_frame = ttk.Frame(self)
+        self.status_frame.pack(fill='x', padx=5, pady=2)
         
         # Audio level indicator
         self.level_frame = ttk.Frame(self)
@@ -827,16 +854,9 @@ class AudioFrame(ModuleFrame):
         self.mute_callback = callback
     
     def _toggle_audio(self):
-        """Toggle audio on/off."""
+        """Toggle audio on/off (called by external controls)."""
         self.enabled = not self.enabled
         self._update_status_indicator()
-        
-        button_text = "Disable Audio" if self.enabled else "Enable Audio"
-        self.audio_button.config(text=button_text)
-        
-        # Enable/disable mute button
-        mute_state = 'normal' if self.enabled else 'disabled'
-        self.mute_button.config(state=mute_state)
         
         # Update status
         if self.enabled:
@@ -850,11 +870,8 @@ class AudioFrame(ModuleFrame):
             self.audio_callback(self.enabled)
     
     def _toggle_mute(self):
-        """Toggle mute on/off."""
+        """Toggle mute on/off (called by external controls)."""
         self.muted = not self.muted
-        
-        button_text = "Unmute" if self.muted else "Mute"
-        self.mute_button.config(text=button_text)
         
         status_text = "Muted" if self.muted else "Active"
         self.audio_status.config(text=f"Audio {status_text}")
@@ -2293,17 +2310,17 @@ class GUIManager:
             btn = tk.Button(
                 self.sidebar,
                 text=icon,
-                font=('Segoe UI', 20),
+                font=('Segoe UI', 16),  # Smaller icon size
                 bg='#34495e',
                 fg='white',
                 relief='flat',
                 bd=0,
-                padx=10,
-                pady=15,
+                width=4,  # Fixed width for consistent sizing
+                height=2,  # Fixed height
                 cursor='hand2',
                 command=lambda t=tab_id: self._show_tab(t)
             )
-            btn.pack(fill='x', padx=5, pady=5)
+            btn.pack(pady=8, padx=8)  # Center alignment with padding
             
             # Add hover effects
             self._add_tab_hover_effects(btn, tab_id)
@@ -2469,13 +2486,8 @@ class GUIManager:
         
         self.audio_frame = AudioFrame(video_container)  # Hidden, just for functionality
         
-        # Participant list (smaller, at bottom right)
-        participants_container = tk.Frame(video_frame, bg='#f8f9fa', height=150)
-        participants_container.pack(fill='x', padx=10, pady=(0, 10))
-        participants_container.pack_propagate(False)
-        
-        self.participant_frame = ParticipantListFrame(participants_container)
-        self.participant_frame.pack(fill='both', expand=True, padx=5, pady=5)
+        # Participant names will be shown directly on video slots
+        # No separate participant list needed
         
         # Video state
         self.video_enabled = False
