@@ -845,8 +845,9 @@ class AudioFrame(ModuleFrame):
             status_text = "Inactive"
         self.audio_status.config(text=f"Audio {status_text}")
         
+        # Fixed: Audio should start regardless of mute state
         if self.audio_callback:
-            self.audio_callback(self.enabled and not self.muted)
+            self.audio_callback(self.enabled)
     
     def _toggle_mute(self):
         """Toggle mute on/off."""
@@ -861,10 +862,6 @@ class AudioFrame(ModuleFrame):
         # Call separate mute callback if available
         if self.mute_callback:
             self.mute_callback(self.muted)
-        
-        # Also call audio callback for overall state
-        if self.audio_callback:
-            self.audio_callback(self.enabled and not self.muted)
     
     def update_audio_level(self, level: float):
         """Update audio level indicator (0.0 to 1.0)."""
@@ -1538,10 +1535,19 @@ class ScreenShareFrame(ModuleFrame):
             # Store current frame data for rescaling when canvas size changes
             self._store_current_frame(frame_data, presenter_name)
             
-            # Update presenter info
+            # Update presenter info with special handling for self-view
             if self.current_presenter_name != presenter_name:
                 self.update_presenter(presenter_name)
-                logger.info(f"Now receiving screen from {presenter_name}")
+                if presenter_name == "You (Presenter)":
+                    logger.info("Displaying your own screen share (presenter view)")
+                    # Update status to show this is self-view
+                    if hasattr(self, 'sharing_status'):
+                        self.sharing_status.config(
+                            text="Sharing your screen (you can see your own share)", 
+                            foreground='green'
+                        )
+                else:
+                    logger.info(f"Now receiving screen from {presenter_name}")
             
             # Convert frame data to PIL Image
             image = Image.open(io.BytesIO(frame_data))

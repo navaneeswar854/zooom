@@ -44,6 +44,9 @@ class ScreenManager:
         self.screen_capture = ScreenCapture(client_id, connection_manager)
         self.screen_playback = ScreenPlayback(client_id)
         
+        # Set up local screen display for presenter
+        self.screen_capture.set_frame_callback(self._handle_local_screen_frame)
+        
         # Screen sharing state
         self.is_presenter = False
         self.is_sharing = False
@@ -515,6 +518,30 @@ class ScreenManager:
         except Exception as e:
             error_msg = f"Unexpected error handling received screen frame: {e}"
             logger.error(error_msg)
+    
+    def _handle_local_screen_frame(self, frame):
+        """
+        Handle local screen frame for presenter's own display.
+        
+        Args:
+            frame: Captured screen frame (numpy array)
+        """
+        try:
+            if self.is_sharing and self.gui_manager:
+                # Convert numpy array to JPEG bytes for display
+                import cv2
+                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]
+                success, encoded_frame = cv2.imencode('.jpg', frame, encode_params)
+                
+                if success:
+                    jpeg_bytes = encoded_frame.tobytes()
+                    # Display the frame locally so presenter can see their own screen
+                    self.gui_manager.display_screen_frame(jpeg_bytes, "You (Presenter)")
+                    logger.debug("Local screen frame displayed for presenter")
+                else:
+                    logger.error("Failed to encode local screen frame for display")
+        except Exception as e:
+            logger.error(f"Error displaying local screen frame: {e}")
             if self.gui_manager:
                 self.gui_manager.show_error("Screen Playback Error", error_msg)
     
