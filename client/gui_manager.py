@@ -100,6 +100,9 @@ class VideoFrame(ModuleFrame):
         if not self.enabled:
             # Show blank screen when video is disabled
             self._show_blank_screen_for_local()
+        else:
+            # Clear blank screen when video is enabled
+            self._clear_blank_screen_for_local()
         
         if self.video_callback:
             self.video_callback(self.enabled)
@@ -110,8 +113,15 @@ class VideoFrame(ModuleFrame):
             if 0 in self.video_slots:
                 slot = self.video_slots[0]
                 
-                # Clear any existing video widgets
+                # Check if blank screen is already showing to prevent duplicates
                 if self._widget_exists(slot['video_frame']):
+                    # Check if there's already a blank screen
+                    for child in slot['video_frame'].winfo_children():
+                        if hasattr(child, 'cget') and child.cget('text') and 'Video Disabled' in str(child.cget('text')):
+                            logger.debug("Local blank screen already showing")
+                            return  # Already showing blank screen, don't create another
+                    
+                    # Clear any existing video widgets (but not blank screens)
                     for child in slot['video_frame'].winfo_children():
                         if hasattr(child, 'image'):  # This is a video widget
                             try:
@@ -119,7 +129,7 @@ class VideoFrame(ModuleFrame):
                             except:
                                 pass
                     
-                    # Create blank screen placeholder
+                    # Create blank screen placeholder only if not already present
                     blank_label = tk.Label(
                         slot['video_frame'], 
                         text="Video Disabled", 
@@ -134,53 +144,67 @@ class VideoFrame(ModuleFrame):
         except Exception as e:
             logger.error(f"Error showing blank screen for local video: {e}")
     
+    def _clear_blank_screen_for_local(self):
+        """Clear blank screen in local video slot when video is enabled."""
+        try:
+            if 0 in self.video_slots:
+                slot = self.video_slots[0]
+                
+                # Clear any blank screen widgets
+                if self._widget_exists(slot['video_frame']):
+                    for child in slot['video_frame'].winfo_children():
+                        if hasattr(child, 'cget') and child.cget('text') and 'Video Disabled' in str(child.cget('text')):
+                            try:
+                                child.destroy()
+                                logger.info("Cleared local blank screen - ready for video")
+                            except:
+                                pass
+                
+                # Update placeholder to show ready state
+                if self._widget_exists(slot['placeholder_label']):
+                    slot['placeholder_label'].config(
+                        text="You\n(Starting video...)",
+                        fg='white'
+                    )
+                
+                # Mark slot as active
+                slot['active'] = True
+                
+        except Exception as e:
+            logger.error(f"Error clearing blank screen for local video: {e}")
+    
     def show_blank_screen_for_client(self, client_id: str, username: str):
         """Show blank screen for a remote client who disabled their video."""
         try:
-            logger.info(f"Showing blank screen for {username} ({client_id})")
-            
             # Find the video slot for this client
             for slot_id, slot in self.video_slots.items():
                 if slot.get('participant_id') == client_id:
-                    logger.info(f"Found slot {slot_id} for {client_id}, showing blank screen")
-                    
-                    # Clear any existing video widgets
-                    if self._widget_exists(slot['video_frame']):
-                        for child in slot['video_frame'].winfo_children():
-                            if hasattr(child, 'image'):  # This is a video widget
-                                try:
-                                    child.destroy()
-                                except:
-                                    pass
-                        
-                        # Create blank screen with username
-                        blank_label = tk.Label(
-                            slot['video_frame'], 
-                            text=f"{username}\n(Video Disabled)", 
-                            fg='gray', 
-                            bg='black',
-                            font=('Segoe UI', 10),
-                            justify='center'
-                        )
-                        blank_label.pack(expand=True)
-                    
-                    # Update placeholder label
-                    if self._widget_exists(slot['placeholder_label']):
-                        slot['placeholder_label'].config(
-                            text=f"{username}\n(Video disabled)",
-                            fg='gray'
-                        )
+                    self._show_blank_screen_for_slot(slot_id, username)
                     
                     # Keep the slot assigned but mark as inactive
                     slot['active'] = False
-                    
-                    logger.info(f"Successfully showed blank screen for {username}")
+                    logger.info(f"Showing blank screen for {username} in slot {slot_id}")
                     break
             else:
                 logger.warning(f"No video slot found for client {client_id}")
                     
         except Exception as e:
             logger.error(f"Error showing blank screen for client {client_id}: {e}")
+    
+    def clear_blank_screen_for_client(self, client_id: str, username: str):
+        """Clear blank screen for a remote client who enabled their video."""
+        try:
+            # Find the video slot for this client
+            for slot_id, slot in self.video_slots.items():
+                if slot.get('participant_id') == client_id:
+                    self._clear_blank_screen_for_slot(slot_id, username)
+                    logger.info(f"Clearing blank screen for {username} in slot {slot_id}")
+                    break
+            else:
+                logger.warning(f"No video slot found for client {client_id}")
+        
+        except Exception as e:
+            logger.error(f"Error clearing blank screen for client {client_id}: {e}")
     
     def _create_video_slots(self):
         """Create video slots in a perfectly equal 2x2 grid with name labels."""
@@ -281,10 +305,14 @@ class VideoFrame(ModuleFrame):
             # Fallback to reasonable default size
             return (240, 180)
     
-    def update_video_feeds(self, participants: Dict[str, Any]):
+    def update_video_feeds(self, participants: Dict[str, Any], current_client_id: str = None):
         """Update video feed display with participant information and names."""
-        # Get ALL participants (both video enabled and disabled)
-        all_participants = list(participants.items())
+        # Filter out the current client from participants (they go in slot 0)
+        remote_participants = []
+        if current_client_id:
+            remote_participants = [(pid, pdata) for pid, pdata in participants.items() if pid != current_client_id]
+        else:
+            remote_participants = list(participants.items())
         
         # Clear all remote slots first (keep slot 0 for local video)
         for slot_id, slot in self.video_slots.items():
@@ -309,8 +337,8 @@ class VideoFrame(ModuleFrame):
                 slot['participant_name'] = None
                 slot['active'] = False
         
-        # Assign ALL participants to available slots (skip slot 0 for local video)
-        for i, (participant_id, participant) in enumerate(all_participants):
+        # Assign ONLY remote participants to available slots (skip slot 0 for local video)
+        for i, (participant_id, participant) in enumerate(remote_participants):
             slot_id = i + 1  # Start from slot 1 (slot 0 is local)
             if slot_id < len(self.video_slots):
                 slot = self.video_slots[slot_id]
@@ -344,8 +372,15 @@ class VideoFrame(ModuleFrame):
             if slot_id in self.video_slots:
                 slot = self.video_slots[slot_id]
                 
-                # Clear any existing video widgets
+                # Check if blank screen is already showing to prevent duplicates
                 if self._widget_exists(slot['video_frame']):
+                    # Check if there's already a blank screen
+                    for child in slot['video_frame'].winfo_children():
+                        if hasattr(child, 'cget') and child.cget('text') and 'Video Disabled' in str(child.cget('text')):
+                            logger.debug(f"Blank screen already showing for {username} in slot {slot_id}")
+                            return  # Already showing blank screen, don't create another
+                    
+                    # Clear any existing video widgets (but not blank screens)
                     for child in slot['video_frame'].winfo_children():
                         if hasattr(child, 'image'):  # This is a video widget
                             try:
@@ -353,7 +388,7 @@ class VideoFrame(ModuleFrame):
                             except:
                                 pass
                     
-                    # Create blank screen with username
+                    # Create blank screen with username only if not already present
                     blank_label = tk.Label(
                         slot['video_frame'], 
                         text=f"{username}\n(Video Disabled)", 
@@ -371,9 +406,36 @@ class VideoFrame(ModuleFrame):
                         fg='orange'
                     )
                     
-                logger.info(f"Showing blank screen for {username} in slot {slot_id}")
         except Exception as e:
             logger.error(f"Error showing blank screen for slot {slot_id}: {e}")
+    
+    def _clear_blank_screen_for_slot(self, slot_id: int, username: str):
+        """Clear blank screen for a specific slot when video is re-enabled."""
+        try:
+            if slot_id in self.video_slots:
+                slot = self.video_slots[slot_id]
+                
+                # Clear any blank screen widgets
+                if self._widget_exists(slot['video_frame']):
+                    for child in slot['video_frame'].winfo_children():
+                        if hasattr(child, 'cget') and child.cget('text') and 'Video Disabled' in str(child.cget('text')):
+                            try:
+                                child.destroy()
+                            except:
+                                pass
+                
+                # Update placeholder label to show ready state
+                if self._widget_exists(slot['placeholder_label']):
+                    slot['placeholder_label'].config(
+                        text=f"{username}\n(Video active)",
+                        fg='lightgreen'
+                    )
+                
+                # Mark slot as active
+                slot['active'] = True
+                
+        except Exception as e:
+            logger.error(f"Error clearing blank screen for slot {slot_id}: {e}")
     
     def update_participant_name(self, participant_id: str, username: str):
         """Update participant name on their video slot with enhanced display."""
@@ -2450,6 +2512,46 @@ class GUIManager:
         
         # Show default tab (video) - will be called after status bar is created
     
+    # def _create_vertical_sidebar(self, parent):
+    #     """Create vertical sidebar with icon-only tabs."""
+    #     self.sidebar = tk.Frame(parent, bg='#2c3e50', width=80)
+    #     self.sidebar.pack(side='left', fill='y')
+    #     self.sidebar.pack_propagate(False)
+        
+    #     # Tab buttons with icons only
+    #     self.tab_buttons = {}
+        
+    #     tabs = [
+    #         ('video', '📹', 'Video Conference'),
+    #         ('chat', '💬', 'Chat'),
+    #         ('screen', '💻', 'Screen Share'),
+    #         ('files', '📁', 'File Sharing')
+    #     ]
+        
+    #     for tab_id, icon, tooltip in tabs:
+    #         btn = tk.Button(
+    #             self.sidebar,
+    #             text=icon,
+    #             font=('Segoe UI', 16),  # Smaller icon size
+    #             bg='#34495e',
+    #             fg='white',
+    #             relief='flat',
+    #             bd=0,
+    #             width=4,  # Fixed width for consistent sizing
+    #             height=2,  # Fixed height
+    #             cursor='hand2',
+    #             command=lambda t=tab_id: self._show_tab(t)
+    #         )
+    #         btn.pack(pady=5, padx=5)  # Center alignment with padding
+            
+    #         # Add hover effects
+    #         self._add_tab_hover_effects(btn, tab_id)
+            
+    #         # Store button reference
+    #         self.tab_buttons[tab_id] = btn
+        
+    #     # Current active tab
+    #     self.current_tab = None
     def _create_vertical_sidebar(self, parent):
         """Create vertical sidebar with icon-only tabs."""
         self.sidebar = tk.Frame(parent, bg='#2c3e50', width=80)
@@ -2462,25 +2564,33 @@ class GUIManager:
         tabs = [
             ('video', '📹', 'Video Conference'),
             ('chat', '💬', 'Chat'),
-            ('screen', '🖥️', 'Screen Share'),
+            ('screen', '💻', 'Screen Share'),
             ('files', '📁', 'File Sharing')
         ]
         
         for tab_id, icon, tooltip in tabs:
+            
+            # 1. Create an invisible frame for THIS button
+            #    By default, .pack() will CENTER this frame horizontally.
+            btn_frame = tk.Frame(self.sidebar, bg='#2c3e50')
+            btn_frame.pack(pady=10) # Add 10px vertical space between buttons
+            
+            # 2. Create the button INSIDE the frame
             btn = tk.Button(
-                self.sidebar,
+                btn_frame,  # <-- IMPORTANT: Create button inside btn_frame
                 text=icon,
-                font=('Segoe UI', 16),  # Smaller icon size
+                font=('Segoe UI', 16),  # Your font size
                 bg='#34495e',
                 fg='white',
                 relief='flat',
                 bd=0,
-                width=4,  # Fixed width for consistent sizing
-                height=2,  # Fixed height
+                # REMOVE width=4 and height=2
                 cursor='hand2',
                 command=lambda t=tab_id: self._show_tab(t)
             )
-            btn.pack(pady=8, padx=8)  # Center alignment with padding
+            
+            # 3. Pack the button inside its frame. It will be centered.
+            btn.pack()
             
             # Add hover effects
             self._add_tab_hover_effects(btn, tab_id)
@@ -2490,6 +2600,65 @@ class GUIManager:
         
         # Current active tab
         self.current_tab = None
+    # def _create_vertical_sidebar(self, parent):
+    #     """Create vertical sidebar with icon-only tabs."""
+    #     self.sidebar = tk.Frame(parent, bg='#2c3e50', width=80)
+    #     self.sidebar.pack(side='left', fill='y')
+    #     self.sidebar.pack_propagate(False)
+        
+    #     # Tab buttons with icons only
+    #     self.tab_buttons = {}
+        
+    #     tabs = [
+    #         ('video', '📹', 'Video Conference'),
+    #         ('chat', '💬', 'Chat'),
+    #         ('screen', '💻', 'Screen Share'),
+    #         ('files', '📁', 'File Sharing')
+    #     ]
+        
+    #     # --- Define a fixed size for all button containers ---
+    #     # This will be centered in the 80px sidebar
+    #     frame_width = 70
+    #     frame_height = 50 # A good standard height
+        
+    #     for tab_id, icon, tooltip in tabs:
+            
+    #         # 1. Create the frame with a FIXED size
+    #         btn_frame = tk.Frame(self.sidebar, bg='#2c3e50', 
+    #                           width=frame_width, height=frame_height)
+            
+    #         # 2. Pack the frame. It will be centered horizontally by default.
+    #         btn_frame.pack(pady=10) # Vertical spacing between buttons
+            
+    #         # 3. *** THIS IS THE KEY ***
+    #         #    Tell the frame to IGNORE the button's size and stay fixed.
+    #         btn_frame.pack_propagate(False)
+            
+    #         # 4. Create the button INSIDE the fixed-size frame
+    #         btn = tk.Button(
+    #             btn_frame,  # Place button in the frame
+    #             text=icon,
+    #             font=('Segoe UI', 16),
+    #             bg='#34495e',
+    #             fg='white',
+    #             relief='flat',
+    #             bd=0,
+    #             cursor='hand2',
+    #             command=lambda t=tab_id: self._show_tab(t)
+    #         )
+            
+    #         # 5. Pack the button. 'expand=True' will center it 
+    #         #    inside the fixed-size btn_frame.
+    #         btn.pack(expand=True)
+            
+    #         # Add hover effects
+    #         self._add_tab_hover_effects(btn, tab_id)
+            
+    #         # Store button reference
+    #         self.tab_buttons[tab_id] = btn
+        
+    #     # Current active tab
+    #     self.current_tab = None
     
     def _create_content_area(self, parent):
         """Create the main content area for tab content."""
@@ -3007,7 +3176,7 @@ class GUIManager:
             self.participant_frame.update_connection_info("Connected", len(participants))
         
         if self.video_frame:
-            self.video_frame.update_video_feeds(participants)
+            self.video_frame.update_video_feeds(participants, current_client_id)
     
     def add_chat_message(self, username: str, message: str, timestamp: Optional[datetime] = None, 
                         is_own_message: bool = False, message_type: str = 'chat'):

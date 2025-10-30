@@ -1213,6 +1213,10 @@ class ConnectionManager:
                         'video_enabled': message.data.get('video_enabled'),
                         'audio_enabled': message.data.get('audio_enabled')
                     })
+                
+                # Trigger callback for participant status update
+                if 'participant_status_update' in self.message_callbacks:
+                    self.message_callbacks['participant_status_update'](message)
             
             elif message.msg_type == MessageType.CHAT.value:
                 # Handle incoming chat messages with reliable delivery confirmation

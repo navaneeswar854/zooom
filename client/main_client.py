@@ -316,6 +316,12 @@ class CollaborationClient:
         try:
             self.video_enabled = enabled
             
+            # Immediately update local video display
+            if not enabled:
+                # Show blank screen for local video immediately
+                if hasattr(self.gui_manager, 'video_frame') and self.gui_manager.video_frame:
+                    self.gui_manager.video_frame._show_blank_screen_for_local()
+            
             if self.connection_manager:
                 # Update server with media status
                 self.connection_manager.update_media_status(
@@ -674,9 +680,23 @@ class CollaborationClient:
         """Handle participant status updates."""
         try:
             if self.connection_manager:
+                # Get the updated client info
+                updated_client_id = message.data.get('client_id')
+                video_enabled = message.data.get('video_enabled')
+                audio_enabled = message.data.get('audio_enabled')
+                
+                # Update participants list
                 participants = self.connection_manager.get_participants()
-                client_id = self.connection_manager.get_client_id()
-                self.gui_manager.update_participants(participants, client_id)
+                
+                # Update GUI participant list (this will handle video status changes via update_video_feeds)
+                current_client_id = self.connection_manager.get_client_id()
+                self.gui_manager.update_participants(participants, current_client_id)
+                
+                # Log the status change for debugging (only for significant changes)
+                if updated_client_id and updated_client_id in participants:
+                    username = participants[updated_client_id].get('username', f'User {updated_client_id[:8]}')
+                    status = "enabled" if video_enabled else "disabled"
+                    logger.debug(f"Participant status update: Video {status} for {username}")
         
         except Exception as e:
             logger.error(f"Error handling participant status update: {e}")
@@ -1018,32 +1038,23 @@ class CollaborationClient:
             logger.error(f"Error handling incoming video frame from {client_id}: {e}")
     
     def _on_video_stream_status_change(self, client_id: str, active: bool):
-        """Handle video stream status changes."""
+        """Handle video stream status changes from video manager."""
         try:
-            # Update participant video status
+            # This method handles video stream events from the video manager
+            # The actual UI updates are handled by _on_participant_status_update
+            # which receives server-broadcasted status updates
+            
+            # Update local participant data
             if self.connection_manager:
                 participants = self.connection_manager.get_participants()
                 if client_id in participants:
                     participants[client_id]['video_enabled'] = active
-                    
-                    # Handle video status change
-                    if hasattr(self.gui_manager, 'video_frame') and self.gui_manager.video_frame:
-                        username = participants[client_id].get('username', f'User {client_id[:8]}')
-                        if not active:
-                            # Video disabled - show blank screen for this client
-                            logger.info(f"Video disabled for {username} ({client_id}), showing blank screen")
-                            self.gui_manager.video_frame.show_blank_screen_for_client(client_id, username)
-                        else:
-                            # Video enabled - ready to receive video frames
-                            logger.info(f"Video enabled for {username} ({client_id}), ready for video frames")
-                            # The video frames will be handled by the normal video processing
-                    
-                    # Update GUI participant list
-                    current_client_id = self.connection_manager.get_client_id()
-                    self.gui_manager.update_participants(participants, current_client_id)
+                    logger.info(f"Video stream status updated for {client_id}: {'active' if active else 'inactive'}")
         
         except Exception as e:
             logger.error(f"Error handling video stream status change: {e}")
+    
+
     
     def _start_audio_capture(self):
         """Start audio capture (placeholder)."""
